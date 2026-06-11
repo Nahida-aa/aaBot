@@ -7,9 +7,9 @@
 - `packages/extension-sdk/`      扩展公开 API
 - `packages/cli/`                CLI 入口
 - `packages/server/`             HTTP/API 服务
-- `packages/web/`                Solid 前端
+- `packages/web/`                Solid 
 - `packages/desktop/`            Tauri 桌面
-- `packages/tui/`                TUI（最后开发）
+- `packages/tui/`                TUI（Solid, 最后开发）
 - `packages/extension-*/`        内置扩展
 
 📁 **目录名 vs Cargo.toml name 规则**：目录名用简洁形式（如 `kernel/`），`package.name` 用 `aa-` 前缀（如 `aa-kernel`）。不要混用。
