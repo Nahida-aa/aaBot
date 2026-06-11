@@ -1,0 +1,26 @@
+[package]
+name = "aa-extensions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "aaBot Extension loader and runtime manager"
+
+[dependencies]
+aa-core = { path = "../core" }
+aa-kernel = { path = "../kernel" }
+aa-extension-sdk = { path = "../extension-sdk" }
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }
+wasmtime = { workspace = true }
+wasmtime-wasi = "45"
+anyhow = { workspace = true }
+
+[dev-dependencies]
+wat = "1"

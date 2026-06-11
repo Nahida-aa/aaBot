@@ -1,0 +1,24 @@
+package aa:extension;
+
+interface plugin {
+    /// 返回插件唯一 ID。
+    get-id: func() -> string;
+    /// 返回插件可读名称。
+    get-name: func() -> string;
+    /// 返回插件版本。
+    get-version: func() -> string;
+    /// 返回 JSON 格式的工具定义列表。
+    /// 每个元素: { name, description, parameters }。
+    register: func() -> string;
+    /// 执行工具。
+    /// name: 工具名
+    /// args-json: JSON 格式参数
+    /// session-id: 会话 ID
+    /// working-dir: 工作目录
+    /// 返回 JSON: { content, is_error, metadata? } 或错误字符串。
+    execute: func(name: string, args-json: string, session-id: string, working-dir: string) -> result<string, string>;
+}
+
+world extension-world {
+    export plugin;
+}

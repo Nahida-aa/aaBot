@@ -1,0 +1,18 @@
+[package]
+name = "aa-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "aaBot CLI entry point"
+
+[dependencies]
+aa-kernel = { path = "../kernel" }
+aa-extension-fs = { path = "../extension-fs" }
+aa-core = { path = "../core" }
+aa-extension-sdk = { path = "../extension-sdk" }
+aa-extensions = { path = "../extensions" }
+clap = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"

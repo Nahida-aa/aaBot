@@ -1,0 +1,15 @@
+[package]
+name = "aa-extension-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "aaBot Extension SDK: 扩展开发的公共 API"
+
+[dependencies]
+aa-core = { path = "../core" }
+aa-kernel = { path = "../kernel" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
