@@ -1,3 +1,6 @@
 {
-  "name": "aa-bot-root"
+  "name": "aa-bot-root",
+  "workspaces": [
+    "packages/*"
+  ]
 }

@@ -5,8 +5,9 @@ members = [
     "packages/core",
     "packages/extension-sdk",
     "packages/extensions",
-    "packages/extension-fs",
+    "packages/function-tools",
     "packages/extension-mcp",
+    "packages/llm",
     "packages/cli",
     "packages/server",
 ]
@@ -35,5 +36,6 @@ tower = { version = "0.5", features = ["util"] }
 wasmtime = { version = "45", features = ["component-model", "wat"] }
 anyhow = "1"
 regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
 glob = "0.3"
 tempfile = "3"

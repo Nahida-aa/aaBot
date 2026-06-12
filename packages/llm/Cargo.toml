@@ -1,0 +1,14 @@
+[package]
+name = "aa-llm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aa-core = { path = "../core" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["sync", "rt", "rt-multi-thread"] }
+reqwest.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true

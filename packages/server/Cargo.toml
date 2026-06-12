@@ -9,7 +9,8 @@ description = "aaBot HTTP/WS API 服务"
 aa-kernel = { path = "../kernel" }
 aa-core = { path = "../core" }
 aa-extensions = { path = "../extensions" }
-aa-extension-fs = { path = "../extension-fs" }
+aa-function-tools = { path = "../function-tools" }
+aa-llm = { path = "../llm" }
 axum = { workspace = true, features = ["default"] }
 tower-http = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

@@ -1,5 +1,5 @@
 [package]
-name = "aa-extension-fs"
+name = "aa-function-tools"
 version.workspace = true
 edition.workspace = true
 

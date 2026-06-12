@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsxImportSource": "solid-js",
+        "types": ["vite/client", "node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+  },
+  "include": ["src"]
+}
