@@ -3,10 +3,10 @@
 //! 拥有运行时级的注册表和宿主组合契约。具体工具、扩展加载器、
 //! 服务器、CLI 从此 crate 外部注册自身。
 
-pub mod tool_pack;
+pub mod tool_provider;
 pub mod tool_registry;
 
-pub use tool_pack::{ToolPack, ToolPackScope};
+pub use tool_provider::{ToolProvider, ToolProviderScope};
 pub use tool_registry::ToolRegistry;
 
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// 可组合的内核表面，供宿主组装运行时能力。
 #[derive(Clone, Default)]
 pub struct Kernel {
-    tool_packs: Arc<[Arc<dyn ToolPack>]>,
+    providers: Arc<[Arc<dyn ToolProvider>]>,
 }
 
 impl Kernel {
@@ -22,14 +22,14 @@ impl Kernel {
         KernelBuilder::default()
     }
 
-    pub fn tool_packs(&self) -> &[Arc<dyn ToolPack>] {
-        &self.tool_packs
+    pub fn tool_providers(&self) -> &[Arc<dyn ToolProvider>] {
+        &self.providers
     }
 
-    pub fn build_tool_registry(&self, scope: &ToolPackScope<'_>) -> ToolRegistry {
+    pub fn build_tool_registry(&self, scope: &ToolProviderScope<'_>) -> ToolRegistry {
         let mut registry = ToolRegistry::new();
-        for pack in self.tool_packs() {
-            for tool in pack.tools(scope) {
+        for provider in self.tool_providers() {
+            for tool in provider.tools(scope) {
                 registry.register(tool);
             }
         }
@@ -41,18 +41,18 @@ impl Kernel {
 #[derive(Default)]
 #[allow(dead_code)]
 pub struct KernelBuilder {
-    tool_packs: Vec<Arc<dyn ToolPack>>,
+    providers: Vec<Arc<dyn ToolProvider>>,
 }
 
 impl KernelBuilder {
-    pub fn with_tool_pack(mut self, pack: Arc<dyn ToolPack>) -> Self {
-        self.tool_packs.push(pack);
+    pub fn with_tool_provider(mut self, provider: Arc<dyn ToolProvider>) -> Self {
+        self.providers.push(provider);
         self
     }
 
     pub fn build(self) -> Kernel {
         Kernel {
-            tool_packs: Arc::from(self.tool_packs),
+            providers: Arc::from(self.providers),
         }
     }
 }

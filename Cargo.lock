@@ -12,6 +12,7 @@ dependencies = [
  "aa-function-tools",
  "aa-kernel",
  "aa-llm",
+ "aa-ollama",
  "clap",
  "serde_json",
  "tokio",
@@ -124,6 +125,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aa-ollama"
+version = "0.1.0"
+dependencies = [
+ "aa-core",
+ "async-trait",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aa-server"
 version = "0.1.0"
 dependencies = [
@@ -132,14 +147,17 @@ dependencies = [
  "aa-function-tools",
  "aa-kernel",
  "aa-llm",
+ "aa-ollama",
  "axum",
  "clap",
+ "futures-util",
  "serde",
  "serde_json",
  "tokio",
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

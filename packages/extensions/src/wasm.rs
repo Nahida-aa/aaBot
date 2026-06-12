@@ -7,7 +7,7 @@ use std::sync::Arc;
 use aa_core::extension::{
     Extension, ExtensionCtx, ExtensionError, Registrar, ToolHandler,
 };
-use aa_kernel::tool_pack::{
+use aa_kernel::tool_provider::{
     ExecutionMode, ToolDefinition, ToolExecutionContext, ToolOrigin, ToolResult,
 };
 use wasmtime::component::{bindgen, Component, Linker};

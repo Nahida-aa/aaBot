@@ -1,13 +1,21 @@
+use std::convert::Infallible;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use aa_core::llm::{ModelConfig, ModelProvider, ModelRequest, ProviderId, Role, Message};
+use aa_core::llm::{
+    Message, ModelConfig, ModelProvider, ModelRequest, ProviderId, Role, StreamEvent, ToolCall,
+    ToolCallFunction,
+};
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::StatusCode,
+    http::{header, Response, StatusCode},
     response::Json,
     routing::{get, post},
     Router,
 };
+use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -36,17 +44,38 @@ struct ToolCallRequest {
     arguments: serde_json::Value,
 }
 
-#[derive(Deserialize)]
-struct ChatRequest {
-    messages: Vec<ChatMsg>,
-    tools: Vec<ToolDef>,
-}
+// ---------------------------------------------------------------------------
+// AG-UI wire format types
+// ---------------------------------------------------------------------------
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Clone)]
 struct ChatMsg {
     role: String,
     #[serde(default)]
-    content: String,
+    content: Option<serde_json::Value>,
+    #[serde(default)]
+    tool_calls: Option<Vec<ToolCallWire>>,
+    #[serde(default)]
+    tool_call_id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    id: Option<String>,
+}
+
+#[derive(Deserialize, Clone)]
+struct ToolCallWire {
+    id: String,
+    #[serde(rename = "type")]
+    call_type: String,
+    function: ToolCallFuncWire,
+}
+
+#[derive(Deserialize, Clone)]
+struct ToolCallFuncWire {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -56,15 +85,431 @@ struct ToolDef {
     parameters: serde_json::Value,
 }
 
-#[derive(Serialize)]
-struct ChatResponse {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<serde_json::Value>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+#[derive(Deserialize)]
+struct AGUIChatRequest {
+    #[serde(default)]
+    thread_id: Option<String>,
+    #[serde(default)]
+    run_id: Option<String>,
+    messages: Vec<ChatMsg>,
+    tools: Vec<ToolDef>,
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn extract_text(content: &Option<serde_json::Value>) -> String {
+    match content {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|part| part.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    }
+}
+
+fn chat_msg_to_message(msg: &ChatMsg) -> Message {
+    let role = match msg.role.as_str() {
+        "assistant" => Role::Assistant,
+        "tool" => Role::Tool,
+        "system" => Role::System,
+        _ => Role::User,
+    };
+
+    let tool_calls = msg.tool_calls.as_ref().map(|tcs| {
+        tcs.iter()
+            .map(|tc| ToolCall {
+                id: tc.id.clone(),
+                call_type: tc.call_type.clone(),
+                function: ToolCallFunction {
+                    name: tc.function.name.clone(),
+                    arguments: tc.function.arguments.clone(),
+                },
+            })
+            .collect()
+    });
+
+    Message {
+        role,
+        content: extract_text(&msg.content),
+        tool_calls,
+        tool_call_id: msg.tool_call_id.clone(),
+        name: msg.name.clone(),
+    }
+}
+
+fn create_provider() -> Box<dyn ModelProvider> {
+    let provider_type = std::env::var("AA_LLM_PROVIDER").unwrap_or_else(|_| "openai".into());
+    match provider_type.as_str() {
+        "ollama" => {
+            let config = aa_ollama::OllamaConfig {
+                base_url: std::env::var("AA_LLM_BASE_URL")
+                    .unwrap_or_else(|_| "http://localhost:11434".into()),
+                default_model: std::env::var("AA_LLM_MODEL")
+                    .unwrap_or_else(|_| "llama3.2".into()),
+            };
+            Box::new(aa_ollama::OllamaProvider::new(config))
+        }
+        _ => {
+            let api_key = std::env::var("AA_LLM_API_KEY").unwrap_or_default();
+            Box::new(aa_llm::OpenAiCompatibleProvider::new(aa_llm::OpenAiConfig {
+                base_url: std::env::var("AA_LLM_BASE_URL")
+                    .unwrap_or_else(|_| "https://api.openai.com/v1".into()),
+                api_key,
+                default_model: std::env::var("AA_LLM_MODEL")
+                    .unwrap_or_else(|_| "gpt-4o-mini".into()),
+            }))
+        }
+    }
+}
+
+async fn send_json(tx: &tokio::sync::mpsc::Sender<String>, value: serde_json::Value) {
+    if let Ok(json) = serde_json::to_string(&value) {
+        let _ = tx.send(json).await;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SSE stream adapter (tokio::mpsc::Receiver → SSE-formatted Stream for Body)
+// ---------------------------------------------------------------------------
+
+struct SseRx(tokio::sync::mpsc::Receiver<String>);
+
+impl Stream for SseRx {
+    type Item = Result<String, Infallible>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.get_mut().0.poll_recv(cx) {
+            Poll::Ready(Some(json)) => Poll::Ready(Some(Ok(format!("data: {json}\n\n")))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SSE chat endpoint
+// ---------------------------------------------------------------------------
+
+async fn chat_sse(
+    State(state): State<AppState>,
+    Json(req): Json<AGUIChatRequest>,
+) -> Response<Body> {
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+    let registry = state.registry.clone();
+    let thread_id = req
+        .thread_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let run_id = req
+        .run_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let history = req.messages;
+    let tool_defs: Vec<serde_json::Value> = req
+        .tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.parameters,
+            })
+        })
+        .collect();
+    let model = std::env::var("AA_LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
+
+    tokio::spawn(async move {
+        // --- API key check ---
+        if std::env::var("AA_LLM_PROVIDER").unwrap_or_default() != "ollama"
+            && std::env::var("AA_LLM_API_KEY").unwrap_or_default().is_empty()
+        {
+            send_json(
+                &tx,
+                serde_json::json!({
+                    "type": "RUN_ERROR",
+                    "threadId": thread_id,
+                    "runId": run_id,
+                    "message": "AA_LLM_API_KEY not set",
+                }),
+            )
+            .await;
+            return;
+        }
+
+        let provider = create_provider();
+
+        // --- RUN_STARTED ---
+        send_json(
+            &tx,
+            serde_json::json!({
+                "type": "RUN_STARTED",
+                "threadId": thread_id,
+                "runId": run_id,
+            }),
+        )
+        .await;
+
+        let mut history = history;
+        let mut iteration = 0u32;
+        const MAX_ITERATIONS: u32 = 10;
+
+        loop {
+            if iteration >= MAX_ITERATIONS {
+                send_json(
+                    &tx,
+                    serde_json::json!({
+                        "type": "RUN_FINISHED",
+                        "threadId": thread_id,
+                        "runId": run_id,
+                        "finishReason": "stop",
+                    }),
+                )
+                .await;
+                break;
+            }
+            iteration += 1;
+
+            let msg_id = format!("msg_{iteration}");
+
+            // --- Build LLM request ---
+            let llm_messages: Vec<Message> = history.iter().map(chat_msg_to_message).collect();
+
+            let request = ModelRequest {
+                messages: llm_messages,
+                tools: tool_defs.clone(),
+                config: ModelConfig {
+                    provider: ProviderId("server".into()),
+                    model: model.clone(),
+                    temperature: None,
+                    max_tokens: Some(4096),
+                    top_p: None,
+                },
+            };
+
+            // --- TEXT_MESSAGE_START ---
+            send_json(
+                &tx,
+                serde_json::json!({
+                    "type": "TEXT_MESSAGE_START",
+                    "messageId": msg_id,
+                }),
+            )
+            .await;
+
+            // --- Stream LLM ---
+            let mut text_content = String::new();
+            let mut tool_calls: Vec<ToolCall> = Vec::new();
+
+            match provider.chat_stream(request).await {
+                Ok(mut stream) => {
+                    let mut done = false;
+                    while let Some(event) = stream.recv().await {
+                        match event {
+                            StreamEvent::Chunk(text) => {
+                                text_content += &text;
+                                send_json(
+                                    &tx,
+                                    serde_json::json!({
+                                        "type": "TEXT_MESSAGE_CONTENT",
+                                        "delta": text,
+                                        "messageId": msg_id,
+                                    }),
+                                )
+                                .await;
+                            }
+                            StreamEvent::ToolCall(tc) => {
+                                tool_calls.push(tc);
+                            }
+                            StreamEvent::Done(_usage) => {
+                                done = true;
+                                break;
+                            }
+                            StreamEvent::Error(err) => {
+                                send_json(
+                                    &tx,
+                                    serde_json::json!({
+                                        "type": "RUN_ERROR",
+                                        "threadId": thread_id,
+                                        "runId": run_id,
+                                        "message": err,
+                                    }),
+                                )
+                                .await;
+                                return;
+                            }
+                        }
+                    }
+                    if !done {
+                        send_json(
+                            &tx,
+                            serde_json::json!({
+                                "type": "RUN_ERROR",
+                                "threadId": thread_id,
+                                "runId": run_id,
+                                "message": "LLM stream ended unexpectedly",
+                            }),
+                        )
+                        .await;
+                        return;
+                    }
+                }
+                Err(e) => {
+                    send_json(
+                        &tx,
+                        serde_json::json!({
+                            "type": "RUN_ERROR",
+                            "threadId": thread_id,
+                            "runId": run_id,
+                            "message": e.to_string(),
+                        }),
+                    )
+                    .await;
+                    return;
+                }
+            }
+
+            // --- Add assistant message to history ---
+            let assistant_tool_calls: Option<Vec<ToolCallWire>> =
+                if tool_calls.is_empty() {
+                    None
+                } else {
+                    Some(
+                        tool_calls
+                            .iter()
+                            .map(|tc| ToolCallWire {
+                                id: tc.id.clone(),
+                                call_type: tc.call_type.clone(),
+                                function: ToolCallFuncWire {
+                                    name: tc.function.name.clone(),
+                                    arguments: tc.function.arguments.clone(),
+                                },
+                            })
+                            .collect(),
+                    )
+                };
+
+            history.push(ChatMsg {
+                role: "assistant".into(),
+                content: Some(serde_json::Value::String(text_content)),
+                tool_calls: assistant_tool_calls,
+                tool_call_id: None,
+                name: None,
+                id: None,
+            });
+
+            // --- No tool calls: finish ---
+            if tool_calls.is_empty() {
+                send_json(
+                    &tx,
+                    serde_json::json!({
+                        "type": "TEXT_MESSAGE_END",
+                        "messageId": msg_id,
+                    }),
+                )
+                .await;
+
+                send_json(
+                    &tx,
+                    serde_json::json!({
+                        "type": "RUN_FINISHED",
+                        "threadId": thread_id,
+                        "runId": run_id,
+                        "finishReason": "stop",
+                    }),
+                )
+                .await;
+                break;
+            }
+
+            // --- Execute tool calls ---
+            for tc in &tool_calls {
+                send_json(
+                    &tx,
+                    serde_json::json!({
+                        "type": "TOOL_CALL_START",
+                        "toolCallId": tc.id,
+                        "toolCallName": tc.function.name,
+                    }),
+                )
+                .await;
+
+                send_json(
+                    &tx,
+                    serde_json::json!({
+                        "type": "TOOL_CALL_ARGS",
+                        "toolCallId": tc.id,
+                        "delta": tc.function.arguments,
+                    }),
+                )
+                .await;
+
+                let parsed_args: serde_json::Value =
+                    serde_json::from_str(&tc.function.arguments)
+                        .unwrap_or(serde_json::Value::Null);
+
+                let ctx = aa_kernel::tool_provider::ToolExecutionContext {
+                    session_id: "http".into(),
+                    working_dir: ".".into(),
+                };
+
+                let tool_result = {
+                    let registry = registry.read().await;
+                    registry.find(&tc.function.name)
+                };
+
+                let result_content = match tool_result {
+                    Some(tool) => match tool.execute(parsed_args.clone(), &ctx).await {
+                        Ok(res) => res.content,
+                        Err(e) => format!("Error: {e}"),
+                    },
+                    None => format!("Error: tool '{}' not found", tc.function.name),
+                };
+
+                send_json(
+                    &tx,
+                    serde_json::json!({
+                        "type": "TOOL_CALL_END",
+                        "toolCallId": tc.id,
+                        "input": parsed_args,
+                        "result": result_content,
+                    }),
+                )
+                .await;
+
+                history.push(ChatMsg {
+                    role: "tool".into(),
+                    content: Some(serde_json::Value::String(result_content)),
+                    tool_calls: None,
+                    tool_call_id: Some(tc.id.clone()),
+                    name: Some(tc.function.name.clone()),
+                    id: None,
+                });
+            }
+
+            // --- TEXT_MESSAGE_END ---
+            send_json(
+                &tx,
+                serde_json::json!({
+                    "type": "TEXT_MESSAGE_END",
+                    "messageId": msg_id,
+                }),
+            )
+            .await;
+        }
+    });
+
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/event-stream")
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(Body::from_stream(SseRx(rx)))
+        .unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// Legacy endpoints (unchanged)
+// ---------------------------------------------------------------------------
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     let count = state.registry.read().await.len();
@@ -93,7 +538,7 @@ async fn call_tool(
     Path(name): Path<String>,
     Json(req): Json<ToolCallRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let ctx = aa_kernel::tool_pack::ToolExecutionContext {
+    let ctx = aa_kernel::tool_provider::ToolExecutionContext {
         session_id: "http".into(),
         working_dir: ".".into(),
     };
@@ -102,12 +547,7 @@ async fn call_tool(
         let registry = state.registry.read().await;
         registry.find(&name).map(|t| t)
     }
-    .ok_or_else(|| {
-        (
-            StatusCode::NOT_FOUND,
-            format!("Tool '{name}' not found"),
-        )
-    })?;
+    .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Tool '{name}' not found")))?;
 
     let result = tool.execute(req.arguments, &ctx).await.map_err(|e| {
         (
@@ -123,171 +563,18 @@ async fn call_tool(
     })))
 }
 
-async fn chat(
-    State(state): State<AppState>,
-    Json(req): Json<ChatRequest>,
-) -> Json<ChatResponse> {
-    let api_key = std::env::var("AA_LLM_API_KEY").unwrap_or_default();
-    if api_key.is_empty() {
-        return Json(ChatResponse {
-            content: None,
-            tool_calls: None,
-            error: Some("AA_LLM_API_KEY not set".into()),
-        });
-    }
-
-    let provider = aa_llm::OpenAiCompatibleProvider::new(aa_llm::OpenAiConfig {
-        base_url: std::env::var("AA_LLM_BASE_URL")
-            .unwrap_or_else(|_| "https://api.openai.com/v1".into()),
-        api_key,
-        default_model: std::env::var("AA_LLM_MODEL")
-            .unwrap_or_else(|_| "gpt-4o-mini".into()),
-    });
-
-    let tool_defs: Vec<serde_json::Value> = req.tools.iter().map(|t| {
-        serde_json::json!({
-            "name": t.name,
-            "description": t.description,
-            "parameters": t.parameters,
-        })
-    }).collect();
-
-    let mut history: Vec<ChatMsg> = req.messages.clone();
-
-    for _ in 0..10 {
-        let messages: Vec<Message> = history.iter().map(|m| {
-            let role = match m.role.as_str() {
-                "assistant" => Role::Assistant,
-                "tool" => Role::Tool,
-                "system" => Role::System,
-                _ => Role::User,
-            };
-            Message {
-                role,
-                content: m.content.clone(),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            }
-        }).collect();
-
-        let request = ModelRequest {
-            messages,
-            tools: tool_defs.clone(),
-            config: ModelConfig {
-                provider: ProviderId("openai".into()),
-                model: std::env::var("AA_LLM_MODEL")
-                    .unwrap_or_else(|_| "gpt-4o-mini".into()),
-                temperature: None,
-                max_tokens: Some(4096),
-                top_p: None,
-            },
-        };
-
-        match provider.chat(request).await {
-            Ok(response) => {
-                if response.tool_calls.is_empty() {
-                    return Json(ChatResponse {
-                        content: Some(response.message.content),
-                        tool_calls: None,
-                        error: None,
-                    });
-                }
-
-                let tcs: Vec<serde_json::Value> = response.tool_calls.iter().map(|tc| {
-                    serde_json::json!({
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        }
-                    })
-                }).collect();
-
-                history.push(ChatMsg {
-                    role: "assistant".into(),
-                    content: String::new(),
-                });
-
-                for tc in &response.tool_calls {
-                    let args: serde_json::Value =
-                        serde_json::from_str(&tc.function.arguments)
-                            .unwrap_or(serde_json::Value::Null);
-
-                    let ctx = aa_kernel::tool_pack::ToolExecutionContext {
-                        session_id: "http".into(),
-                        working_dir: ".".into(),
-                    };
-
-                    let result = {
-                        let registry = state.registry.read().await;
-                        registry.find(&tc.function.name)
-                    };
-
-                    match result {
-                        Some(tool) => {
-                            match tool.execute(args, &ctx).await {
-                                Ok(res) => {
-                                    history.push(ChatMsg {
-                                        role: "tool".into(),
-                                        content: res.content,
-                                    });
-                                }
-                                Err(e) => {
-                                    history.push(ChatMsg {
-                                        role: "tool".into(),
-                                        content: format!("Error: {e}"),
-                                    });
-                                }
-                            }
-                        }
-                        None => {
-                            history.push(ChatMsg {
-                                role: "tool".into(),
-                                content: format!("Error: tool '{}' not found", tc.function.name),
-                            });
-                        }
-                    }
-                }
-
-                // Return tool calls to frontend for display, then continue loop
-                if tcs.len() == 1 {
-                    // Single step: continue automatically
-                    continue;
-                }
-                // Multiple tool calls: return to frontend for display
-                return Json(ChatResponse {
-                    content: None,
-                    tool_calls: Some(tcs),
-                    error: None,
-                });
-            }
-            Err(e) => {
-                return Json(ChatResponse {
-                    content: None,
-                    tool_calls: None,
-                    error: Some(e.to_string()),
-                });
-            }
-        }
-    }
-
-    Json(ChatResponse {
-        content: Some("Max iterations reached".into()),
-        tool_calls: None,
-        error: None,
-    })
-}
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
     let kernel = aa_kernel::Kernel::builder()
-        .with_tool_pack(std::sync::Arc::new(aa_function_tools::FsToolPack))
+        .with_tool_provider(std::sync::Arc::new(aa_function_tools::FsToolProvider))
         .build();
-    let scope = aa_kernel::ToolPackScope::new(".");
+    let scope = aa_kernel::ToolProviderScope::new(".");
     let registry = Arc::new(RwLock::new(kernel.build_tool_registry(&scope)));
 
     let state = AppState { registry };
@@ -296,7 +583,7 @@ async fn main() {
         .route("/health", get(health))
         .route("/tools", get(list_tools))
         .route("/tools/{name}", post(call_tool))
-        .route("/chat", post(chat))
+        .route("/chat", post(chat_sse))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")

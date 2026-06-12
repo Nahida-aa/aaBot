@@ -10,6 +10,7 @@ members = [
     "packages/llm",
     "packages/cli",
     "packages/server",
+    "packages/ollama",
 ]
 
 [workspace.package]

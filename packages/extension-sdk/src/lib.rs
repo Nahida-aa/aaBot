@@ -11,7 +11,7 @@ pub use aa_core::extension::{
 };
 
 // ─── 工具类型 ─────────────────────────────────────────────────────────
-pub use aa_kernel::tool_pack::{
+pub use aa_kernel::tool_provider::{
     ExecutionMode, Tool, ToolDefinition, ToolError, ToolExecutionContext, ToolOrigin,
     ToolResult,
 };

@@ -8,7 +8,7 @@ pub mod llm;
 pub mod event;
 
 // 重新导出内核的工具类型，方便外部只依赖 aa-core。
-pub use aa_kernel::tool_pack::{
+pub use aa_kernel::tool_provider::{
     ExecutionMode, Tool, ToolDefinition, ToolError, ToolOrigin, ToolResult,
     ToolExecutionContext,
 };

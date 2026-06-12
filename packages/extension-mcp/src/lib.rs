@@ -2,7 +2,7 @@ pub mod client;
 
 use std::sync::Arc;
 
-use aa_kernel::tool_pack::*;
+use aa_kernel::tool_provider::*;
 use async_trait::async_trait;
 use client::McpClient;
 
@@ -27,11 +27,11 @@ struct ToolDef {
     input_schema: serde_json::Value,
 }
 
-pub struct McpToolPack {
+pub struct McpToolProvider {
     servers: Vec<ConnectedServer>,
 }
 
-impl McpToolPack {
+impl McpToolProvider {
     /// 连接所有配置的 MCP 服务器并发现其工具。
     pub fn new(servers: Vec<McpServerConfig>) -> Self {
         let servers = servers
@@ -108,8 +108,8 @@ impl McpToolPack {
     }
 }
 
-impl ToolPack for McpToolPack {
-    fn tools(&self, _scope: &ToolPackScope<'_>) -> Vec<Arc<dyn Tool>> {
+impl ToolProvider for McpToolProvider {
+    fn tools(&self, _scope: &ToolProviderScope<'_>) -> Vec<Arc<dyn Tool>> {
         let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
 
         for server in &self.servers {

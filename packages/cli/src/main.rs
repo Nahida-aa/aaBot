@@ -27,6 +27,8 @@ struct RunArgs {
     model: String,
     #[arg(long, default_value = "https://api.deepseek.com")]
     base_url: String,
+    #[arg(long, default_value = "openai")]
+    provider: String,
 }
 
 #[derive(clap::Args)]
@@ -78,13 +80,23 @@ async fn cmd_run(args: &RunArgs) {
         return;
     }
 
-    let llm_config = aa_llm::OpenAiConfig {
-        base_url: args.base_url.clone(),
-        api_key: std::env::var("AA_API_KEY").unwrap_or_default(),
-        default_model: args.model.clone(),
+    let provider: Arc<dyn ModelProvider> = match args.provider.as_str() {
+        "ollama" => {
+            let config = aa_ollama::OllamaConfig {
+                base_url: args.base_url.clone(),
+                default_model: args.model.clone(),
+            };
+            Arc::new(aa_ollama::OllamaProvider::new(config))
+        }
+        _ => {
+            let config = aa_llm::OpenAiConfig {
+                base_url: args.base_url.clone(),
+                api_key: std::env::var("AA_API_KEY").unwrap_or_default(),
+                default_model: args.model.clone(),
+            };
+            Arc::new(aa_llm::OpenAiCompatibleProvider::new(config))
+        }
     };
-
-    let provider = Arc::new(aa_llm::OpenAiCompatibleProvider::new(llm_config));
 
     let mut messages: Vec<Message> = vec![Message {
         role: Role::System,
@@ -116,7 +128,7 @@ async fn cmd_run(args: &RunArgs) {
                 messages: messages.clone(),
                 tools: tools.iter().map(|t| serde_json::to_value(t).unwrap()).collect(),
                 config: ModelConfig {
-                    provider: ProviderId("openai-compatible".into()),
+                    provider: provider.id(),
                     model: args.model.clone(),
                     temperature: None,
                     max_tokens: None,
@@ -135,7 +147,7 @@ async fn cmd_run(args: &RunArgs) {
                             let tool_args: serde_json::Value =
                                 serde_json::from_str(&tc.function.arguments)
                                     .unwrap_or(serde_json::Value::Null);
-                            let ctx = aa_kernel::tool_pack::ToolExecutionContext {
+                            let ctx = aa_kernel::tool_provider::ToolExecutionContext {
                                 session_id: "cli".into(),
                                 working_dir: wd.clone(),
                             };
@@ -209,7 +221,7 @@ async fn cmd_tool(args: &ToolArgs) {
         ToolCommand::Call { name, arguments } => {
             let args: serde_json::Value =
                 serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
-            let ctx = aa_kernel::tool_pack::ToolExecutionContext {
+            let ctx = aa_kernel::tool_provider::ToolExecutionContext {
                 session_id: "cli".into(),
                 working_dir: ".".into(),
             };
@@ -231,7 +243,7 @@ async fn cmd_extension(_args: &ExtensionArgs) {
 
 fn build_kernel() -> aa_kernel::Kernel {
     aa_kernel::Kernel::builder()
-        .with_tool_pack(Arc::new(aa_function_tools::FsToolPack))
+        .with_tool_provider(Arc::new(aa_function_tools::FsToolProvider))
         .build()
 }
 
@@ -239,6 +251,6 @@ fn build_registry(
     kernel: &aa_kernel::Kernel,
     working_dir: &str,
 ) -> aa_kernel::ToolRegistry {
-    let scope = aa_kernel::ToolPackScope::new(working_dir);
+    let scope = aa_kernel::ToolProviderScope::new(working_dir);
     kernel.build_tool_registry(&scope)
 }

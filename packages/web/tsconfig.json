@@ -12,7 +12,11 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
-
+        "allowImportingTsExtensions": true,
+    "allowJs": true,
+        "isolatedModules": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
   },
   "include": ["src"]
 }

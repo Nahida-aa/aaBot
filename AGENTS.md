@@ -13,6 +13,7 @@
 - `packages/function-tools/`     LLM function calling 工具集
 - `packages/web/`                Solid.js 前端（Vite, TypeScript）
 - `packages/llm/`                LLM Provider 实现（OpenAI 兼容）
+- `packages/ollama/`             Ollama 原生 Provider（/api/chat）
 - `packages/extension-*/`        内置扩展
 
 📁 **目录名 vs Cargo.toml name 规则**：目录名用简洁形式（如 `kernel/`），`package.name` 用 `aa-` 前缀（如 `aa-kernel`）。不要混用。

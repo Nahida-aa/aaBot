@@ -23,7 +23,7 @@ fn test_wasm_plugin_load_and_execute() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(async {
-        let ctx = aa_kernel::tool_pack::ToolExecutionContext {
+        let ctx = aa_kernel::tool_provider::ToolExecutionContext {
             session_id: "test-session".into(),
             working_dir: "/tmp".into(),
         };

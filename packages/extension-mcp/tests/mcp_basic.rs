@@ -1,10 +1,10 @@
-use aa_kernel::tool_pack::ToolPack;
+use aa_kernel::tool_provider::ToolProvider;
 
 #[test]
 fn test_from_json_empty() {
-    let pack = aa_extension_mcp::McpToolPack::from_json(serde_json::json!({}));
-    let scope = aa_kernel::ToolPackScope::new(".");
-    let tools = pack.tools(&scope);
+    let provider = aa_extension_mcp::McpToolProvider::from_json(serde_json::json!({}));
+    let scope = aa_kernel::ToolProviderScope::new(".");
+    let tools = provider.tools(&scope);
     assert!(tools.is_empty(), "no servers should mean no tools");
 }
 
@@ -17,8 +17,8 @@ fn test_from_json_parsing() {
         }
     });
 
-    let pack = aa_extension_mcp::McpToolPack::from_json(json);
-    let scope = aa_kernel::ToolPackScope::new(".");
-    let tools = pack.tools(&scope);
+    let provider = aa_extension_mcp::McpToolProvider::from_json(json);
+    let scope = aa_kernel::ToolProviderScope::new(".");
+    let tools = provider.tools(&scope);
     assert!(tools.is_empty());
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::tool_pack::{Tool, ToolDefinition};
+use crate::tool_provider::{Tool, ToolDefinition};
 
 /// 工具注册表——按名称索引所有已注册的工具。
 #[derive(Default)]

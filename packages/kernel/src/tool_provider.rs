@@ -4,17 +4,17 @@ use std::sync::Arc;
 ///
 /// 内核不关心工具的具体实现，只通过此 trait 按需获取工具列表。
 /// 内置扩展、外部插件、WASM 模块等通过实现此 trait 向内核注册工具。
-pub trait ToolPack: Send + Sync {
-    fn tools(&self, scope: &ToolPackScope<'_>) -> Vec<Arc<dyn Tool>>;
+pub trait ToolProvider: Send + Sync {
+    fn tools(&self, scope: &ToolProviderScope<'_>) -> Vec<Arc<dyn Tool>>;
 }
 
-/// 工具包的查询作用域，携带当前运行上下文。
+/// 工具提供者的查询作用域，携带当前运行上下文。
 #[derive(Debug, Clone)]
-pub struct ToolPackScope<'a> {
+pub struct ToolProviderScope<'a> {
     pub working_dir: &'a str,
 }
 
-impl<'a> ToolPackScope<'a> {
+impl<'a> ToolProviderScope<'a> {
     pub fn new(working_dir: &'a str) -> Self {
         Self { working_dir }
     }

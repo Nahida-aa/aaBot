@@ -1,14 +1,14 @@
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
-use aa_kernel::tool_pack::*;
+use aa_kernel::tool_provider::*;
 use async_trait::async_trait;
 use tokio::fs;
 
-pub struct FsToolPack;
+pub struct FsToolProvider;
 
-impl ToolPack for FsToolPack {
-    fn tools(&self, _scope: &ToolPackScope<'_>) -> Vec<Arc<dyn Tool>> {
+impl ToolProvider for FsToolProvider {
+    fn tools(&self, _scope: &ToolProviderScope<'_>) -> Vec<Arc<dyn Tool>> {
         vec![
             Arc::new(FsRead),
             Arc::new(FsWrite),

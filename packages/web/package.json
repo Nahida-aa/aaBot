@@ -2,6 +2,7 @@
   "name": "aa-web",
   "private": true,
   "type": "module",
+  "version": "0.0.1",
   "imports": {
     "#/*": "./src/*"
   },
@@ -15,6 +16,7 @@
     "@repo/ui-solid": "workspace:*",
     "@tanstack/solid-query": "^5.101.0",
     "@tanstack/solid-router": "^1.170.15",
+    "lucide-solid": "^1.17.0",
     "solid-js": "^1.9.13"
   },
   "devDependencies": {
