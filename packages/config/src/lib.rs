@@ -273,4 +273,34 @@ mod tests {
         assert_eq!(cfg.model.as_deref(), Some("ollama/llama3.2"));
         assert_eq!(cfg.provider.get("ollama").unwrap().base_url.as_deref(), Some("http://localhost:12345"));
     }
+
+    #[test]
+    fn test_mcp_config_from_file() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("aa.json");
+        let mut f = std::fs::File::create(&config_path).unwrap();
+        f.write_all(br#"{"mcp": {"servers": {"my-tool": {"command": "npx", "args": ["-y", "mcp-server"]}}}}"#).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        let cfg = Config::load();
+        std::env::set_current_dir(prev).unwrap();
+
+        let json = cfg.mcp_servers_json().unwrap();
+        assert_eq!(json["my-tool"]["command"], "npx");
+        assert_eq!(json["my-tool"]["args"][0], "-y");
+        assert_eq!(json["my-tool"]["args"][1], "mcp-server");
+    }
+
+    #[test]
+    fn test_mcp_config_fallback_env() {
+        let cfg = Config { model: None, provider: HashMap::new(), mcp: None };
+        assert!(cfg.mcp_servers_json().is_none());
+
+        std::env::set_var("AA_MCP_SERVERS", r#"{"env-tool": {"command": "docker", "args": []}}"#);
+        let json = cfg.mcp_servers_json().unwrap();
+        assert_eq!(json["env-tool"]["command"], "docker");
+        std::env::remove_var("AA_MCP_SERVERS");
+    }
 }

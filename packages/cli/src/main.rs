@@ -97,7 +97,8 @@ fn main() {
         Some(Command::Run(ref run_args)) => {
             let rt = tokio::runtime::Runtime::new().expect("tokio rt");
             rt.block_on(async {
-                let kernel = build_kernel();
+                let cfg = aa_config::Config::load();
+                let kernel = build_kernel(&cfg);
                 let registry = build_registry(&kernel, working_dir);
                 run::cmd_run(run_args, &kernel, &registry).await;
             });
@@ -176,7 +177,8 @@ fn spawn_tui(attach_url: Option<&str>, _working_dir: &str) {
 }
 
 async fn cmd_tool(args: &ToolArgs) {
-    let kernel = build_kernel();
+    let cfg = aa_config::Config::load();
+    let kernel = build_kernel(&cfg);
     let registry = build_registry(&kernel, ".");
 
     match &args.command {
@@ -204,24 +206,14 @@ async fn cmd_tool(args: &ToolArgs) {
     }
 }
 
-pub(crate) fn build_kernel() -> aa_kernel::Kernel {
+pub(crate) fn build_kernel(config: &aa_config::Config) -> aa_kernel::Kernel {
     let mut builder = aa_kernel::Kernel::builder()
         .with_tool_provider(Arc::new(aa_function_tools::FsToolProvider));
 
-    // Load MCP servers from AA_MCP_SERVERS env var
-    if let Ok(json_str) = std::env::var("AA_MCP_SERVERS") {
-        if !json_str.is_empty() {
-            match serde_json::from_str(&json_str) {
-                Ok(val) => {
-                    builder = builder.with_tool_provider(
-                        Arc::new(aa_extension_mcp::McpToolProvider::from_json(val)),
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("AA_MCP_SERVERS parse error: {e}");
-                }
-            }
-        }
+    if let Some(mcp_json) = config.mcp_servers_json() {
+        builder = builder.with_tool_provider(
+            Arc::new(aa_extension_mcp::McpToolProvider::from_json(mcp_json)),
+        );
     }
 
     builder.build()

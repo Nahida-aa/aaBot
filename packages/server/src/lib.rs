@@ -39,6 +39,8 @@ struct ToolInfo {
 struct HealthResponse {
     status: String,
     tool_count: usize,
+    provider: String,
+    model: String,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -586,6 +588,8 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
         tool_count: count,
+        provider: state.resolved.provider.clone(),
+        model: state.resolved.model.clone(),
     })
 }
 
@@ -710,24 +714,14 @@ fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig) -> Router 
 }
 
 /// Build the kernel with built-in tool providers and optional MCP extensions.
-fn build_kernel() -> aa_kernel::Kernel {
+fn build_kernel(config: &aa_config::Config) -> aa_kernel::Kernel {
     let mut builder = aa_kernel::Kernel::builder()
         .with_tool_provider(std::sync::Arc::new(aa_function_tools::FsToolProvider));
 
-    // Load MCP servers from AA_MCP_SERVERS env var
-    if let Ok(json_str) = std::env::var("AA_MCP_SERVERS") {
-        if !json_str.is_empty() {
-            match serde_json::from_str(&json_str) {
-                Ok(val) => {
-                    builder = builder.with_tool_provider(
-                        std::sync::Arc::new(aa_extension_mcp::McpToolProvider::from_json(val)),
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!("AA_MCP_SERVERS parse error: {e}");
-                }
-            }
-        }
+    if let Some(mcp_json) = config.mcp_servers_json() {
+        builder = builder.with_tool_provider(
+            std::sync::Arc::new(aa_extension_mcp::McpToolProvider::from_json(mcp_json)),
+        );
     }
 
     builder.build()
@@ -742,11 +736,11 @@ pub async fn serve(
     cli_model: Option<&str>,
     cli_base_url: Option<&str>,
 ) -> anyhow::Result<()> {
-    let kernel = build_kernel();
+    let config = aa_config::Config::load();
+    let kernel = build_kernel(&config);
     let scope = aa_kernel::ToolProviderScope::new(".");
     let registry = Arc::new(RwLock::new(kernel.build_tool_registry(&scope)));
 
-    let config = aa_config::Config::load();
     let resolved = config.resolve(cli_provider, cli_model, cli_base_url);
 
     let app = build_app(registry, resolved);

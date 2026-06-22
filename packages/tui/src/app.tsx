@@ -5,6 +5,10 @@ import { createCliRenderer, type CliRenderer, type CliRendererConfig } from "@op
 import * as Clipboard from "./util/clipboard";
 import { AaClient } from "@aa/sdk";
 import { ToastProvider, useToast, Toast } from "./ui/toast";
+import { DialogProvider, useDialog, Dialog } from "./ui/dialog";
+import { ConfigDialog } from "./component/dialog/config";
+import { SessionListDialog } from "./component/dialog/session-list";
+import { CommandPalette, type PaletteCommand } from "./component/command-palette";
 import { Home } from "./routes/home";
 import { Session } from "./routes/session";
 import { ExitProvider, createExit, type Exit } from "./context/exit";
@@ -151,15 +155,17 @@ async function mountTui(input: TuiInput & { keymap: ReturnType<typeof createDefa
         <ArgsProvider {...input.args}>
           <ExitProvider exit={input.exit}>
             <ToastProvider>
-              <RouteProvider
-                initialRoute={
-                  input.args.continue
-                    ? { type: "session", sessionID: "dummy" }
-                    : undefined
-                }
-              >
-                <App onSnapshot={input.onSnapshot} url={input.url} />
-              </RouteProvider>
+              <DialogProvider>
+                <RouteProvider
+                  initialRoute={
+                    input.args.continue
+                      ? { type: "session", sessionID: "dummy" }
+                      : undefined
+                  }
+                >
+                  <App onSnapshot={input.onSnapshot} url={input.url} />
+                </RouteProvider>
+              </DialogProvider>
             </ToastProvider>
           </ExitProvider>
         </ArgsProvider>
@@ -175,8 +181,56 @@ async function mountTui(input: TuiInput & { keymap: ReturnType<typeof createDefa
 export const App = (props: { onSnapshot?: () => Promise<string[]>; url?: string }) => {
   const renderer = useRenderer();
   const toast = useToast();
+  const dialog = useDialog();
   const route = useRoute();
   const client = new AaClient(props.url ?? "http://localhost:3000");
+
+  const handlePaletteCommand = (cmd: PaletteCommand) => {
+    switch (cmd.action) {
+      case "config":
+        client.health().then((h) => {
+          dialog.push(() => (
+            <ConfigDialog
+              current={{
+                provider: h.provider,
+                model: h.model,
+                baseUrl: "",
+                hasApiKey: false,
+              }}
+              onSave={(c) => {
+                toast.show({ message: `Config: ${c.provider}/${c.model}`, variant: "info" })
+              }}
+            />
+          ))
+        }).catch(() => {
+          toast.show({ message: "Server not available", variant: "error" })
+        })
+        break
+      case "session-list":
+        dialog.push(() => (
+          <SessionListDialog
+            client={client}
+            onSelect={(id) => route.navigate({ type: "session", sessionID: id })}
+          />
+        ))
+        break
+      case "back-home":
+        route.navigate({ type: "home" })
+        break
+      case "new-session":
+        route.navigate({ type: "session", sessionID: "" })
+        break
+      case "help":
+        toast.show({ message: "Ctrl+K: Palette · Esc: Close · ↑↓: Select", variant: "info" })
+        break
+    }
+  }
+
+  const openPalette = () => {
+    dialog.push(
+      () => <CommandPalette onCommand={handlePaletteCommand} />,
+    )
+  }
 
   createEffect(() => {
     renderer.console.onCopySelection = async (text: string) => {
@@ -189,7 +243,16 @@ export const App = (props: { onSnapshot?: () => Promise<string[]>; url?: string 
   })
 
   return (
-    <box width="100%" height="100%" flexDirection="column">
+    <box
+      width="100%"
+      height="100%"
+      flexDirection="column"
+      on:keypress={(e: { name?: string; ctrl?: boolean }) => {
+        if ((e.name === "k" || e.name === "K") && e.ctrl) {
+          openPalette()
+        }
+      }}
+    >
       <Switch>
         <Match when={route.data.type === "home"}>
           <Home
@@ -202,6 +265,7 @@ export const App = (props: { onSnapshot?: () => Promise<string[]>; url?: string 
           <Session client={client} onBack={() => route.navigate({ type: "home" })} toast={toast} sessionID={(route.data as { type: "session"; sessionID: string }).sessionID} />
         </Match>
       </Switch>
+      <Dialog />
       <Toast />
     </box>
   );

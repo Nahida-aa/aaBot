@@ -55,6 +55,8 @@ export type FilePartSource = {
 export type HealthResponse = {
     status: string;
     tool_count: number;
+    provider: string;
+    model: string;
 };
 
 export type PartTextRange = {
