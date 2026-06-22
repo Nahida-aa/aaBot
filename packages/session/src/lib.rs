@@ -5,7 +5,6 @@ use aa_kernel::tool_provider::{Tool, ToolExecutionContext};
 
 // ── Events ──────────────────────────────────────────────────
 
-/// 对话轮次中发送给 UI 的实时事件。
 #[derive(Debug, Clone)]
 pub enum SessionEvent {
     Token(String),
@@ -17,7 +16,6 @@ pub enum SessionEvent {
 
 // ── Turn ─────────────────────────────────────────────────────
 
-/// 一次对话轮次的输入。
 pub struct TurnInput {
     pub messages: Vec<Message>,
     pub provider: Arc<dyn ModelProvider>,
@@ -27,12 +25,9 @@ pub struct TurnInput {
     pub session_id: String,
 }
 
-/// 运行一次完整的对话轮次（包含工具调用循环）。
-///
-/// 消费 `input`，通过 `tx` 发送实时事件，返回更新后的消息列表。
 pub async fn run_turn(
     input: TurnInput,
-    tx: std::sync::mpsc::Sender<SessionEvent>,
+    tx: tokio::sync::mpsc::Sender<SessionEvent>,
 ) -> TurnInput {
     let TurnInput { mut messages, provider, tools, model, working_dir, session_id } = input;
 
@@ -57,7 +52,7 @@ pub async fn run_turn(
         let mut stream_rx = match provider.chat_stream(request).await {
             Ok(rx) => rx,
             Err(e) => {
-                let _ = tx.send(SessionEvent::Error(format!("{e}")));
+                let _ = tx.send(SessionEvent::Error(format!("{e}"))).await;
                 return TurnInput { messages, provider, tools, model, working_dir, session_id };
             }
         };
@@ -69,10 +64,10 @@ pub async fn run_turn(
             match event {
                 StreamEvent::Chunk(text) => {
                     assistant_text.push_str(&text);
-                    let _ = tx.send(SessionEvent::Token(text));
+                    let _ = tx.send(SessionEvent::Token(text)).await;
                 }
                 StreamEvent::ToolCall(tc) => {
-                    let _ = tx.send(SessionEvent::ToolCall(tc.clone()));
+                    let _ = tx.send(SessionEvent::ToolCall(tc.clone())).await;
                     tool_calls.push(tc);
                 }
                 StreamEvent::Done(usage) => {
@@ -85,7 +80,7 @@ pub async fn run_turn(
                     });
 
                     if tool_calls.is_empty() {
-                        let _ = tx.send(SessionEvent::Done { usage: Some(usage) });
+                        let _ = tx.send(SessionEvent::Done { usage: Some(usage) }).await;
                         return TurnInput { messages, provider, tools, model, working_dir, session_id };
                     }
 
@@ -113,7 +108,7 @@ pub async fn run_turn(
                                         name: tc.function.name.clone(),
                                         content,
                                         is_error: result.is_error,
-                                    });
+                                    }).await;
                                 }
                                 Err(e) => {
                                     let err = format!("Error: {e}");
@@ -128,7 +123,7 @@ pub async fn run_turn(
                                         name: tc.function.name.clone(),
                                         content: err,
                                         is_error: true,
-                                    });
+                                    }).await;
                                 }
                             },
                             None => {
@@ -144,14 +139,14 @@ pub async fn run_turn(
                                     name: tc.function.name.clone(),
                                     content: err,
                                     is_error: true,
-                                });
+                                }).await;
                             }
                         }
                     }
                     tool_calls.clear();
                 }
                 StreamEvent::Error(msg) => {
-                    let _ = tx.send(SessionEvent::Error(msg));
+                    let _ = tx.send(SessionEvent::Error(msg)).await;
                     return TurnInput { messages, provider, tools, model, working_dir, session_id };
                 }
             }

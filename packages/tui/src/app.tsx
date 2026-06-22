@@ -158,7 +158,7 @@ async function mountTui(input: TuiInput & { keymap: ReturnType<typeof createDefa
                     : undefined
                 }
               >
-                <App onSnapshot={input.onSnapshot} />
+                <App onSnapshot={input.onSnapshot} url={input.url} />
               </RouteProvider>
             </ToastProvider>
           </ExitProvider>
@@ -172,11 +172,11 @@ async function mountTui(input: TuiInput & { keymap: ReturnType<typeof createDefa
 // App
 // ---------------------------------------------------------------------------
 
-export const App = (props: { onSnapshot?: () => Promise<string[]> }) => {
+export const App = (props: { onSnapshot?: () => Promise<string[]>; url?: string }) => {
   const renderer = useRenderer();
   const toast = useToast();
   const route = useRoute();
-  const client = new AaClient("http://localhost:3000");
+  const client = new AaClient(props.url ?? "http://localhost:3000");
 
   createEffect(() => {
     renderer.console.onCopySelection = async (text: string) => {

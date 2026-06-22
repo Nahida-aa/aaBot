@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand};
 mod clipboard;
 mod markdown;
 mod run;
-mod tui;
 
 #[derive(Parser)]
 #[command(name = "aa", version, about = "aaBot - 个人 AI 助手")]
@@ -31,6 +30,17 @@ struct Cli {
 enum Command {
     /// 行模式对话
     Run(run::RunArgs),
+    /// 启动 HTTP 服务
+    Serve {
+        /// 监听端口（默认 3000）
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+    },
+    /// 连接到远程 server
+    Attach {
+        /// 远程 server URL（如 http://192.168.1.100:3000）
+        url: String,
+    },
     /// 工具管理
     Tool(ToolArgs),
     /// 扩展管理
@@ -67,7 +77,7 @@ fn main() {
     let working_dir = args.working_dir.as_deref().unwrap_or(".");
 
     match args.command {
-        None => tui::run_tui(args.provider.as_deref(), args.model.as_deref(), args.base_url.as_deref(), working_dir),
+        None => spawn_tui(None, working_dir),
         Some(Command::Run(ref run_args)) => {
             let rt = tokio::runtime::Runtime::new().expect("tokio rt");
             rt.block_on(async {
@@ -76,12 +86,44 @@ fn main() {
                 run::cmd_run(run_args, &kernel, &registry).await;
             });
         }
+        Some(Command::Serve { port }) => {
+            let rt = tokio::runtime::Runtime::new().expect("tokio rt");
+            rt.block_on(async {
+                aa_server::serve(port).await.expect("server failed");
+            });
+        }
+        Some(Command::Attach { ref url }) => {
+            spawn_tui(Some(url), working_dir);
+        }
         Some(Command::Tool(ref tool_args)) => {
             let rt = tokio::runtime::Runtime::new().expect("tokio rt");
             rt.block_on(cmd_tool(tool_args));
         }
         Some(Command::Extension(ref _ext_args)) => {
             println!("No extensions loaded (built-in only)");
+        }
+    }
+}
+
+fn spawn_tui(attach_url: Option<&str>, _working_dir: &str) {
+    let mut cmd = std::process::Command::new("bun");
+    cmd.args(["run", "--conditions=browser", "packages/tui/src/index.tsx"])
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+
+    if let Some(url) = attach_url {
+        cmd.env("AA_SERVER_URL", url);
+    }
+
+    let status = cmd.spawn().and_then(|mut child| child.wait());
+
+    match status {
+        Ok(exit) => std::process::exit(exit.code().unwrap_or(0)),
+        Err(e) => {
+            eprintln!("Failed to launch TUI: {e}");
+            eprintln!("Make sure bun is installed and the TUI dependencies are set up:");
+            eprintln!("  cd packages/tui && bun install");
+            std::process::exit(1);
         }
     }
 }

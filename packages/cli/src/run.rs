@@ -82,7 +82,7 @@ pub async fn cmd_run(
             name: None,
         });
 
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
 
         let input = aa_session::TurnInput {
             messages,
@@ -95,7 +95,7 @@ pub async fn cmd_run(
 
         let handle = tokio::spawn(aa_session::run_turn(input, tx));
 
-        while let Ok(event) = rx.recv() {
+        while let Some(event) = rx.blocking_recv() {
             match event {
                 aa_session::SessionEvent::Token(text) => {
                     print!("{text}");
