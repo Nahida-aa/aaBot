@@ -166,10 +166,69 @@ fn test_fs_read_nonexistent() {
 }
 
 #[test]
+fn test_shell_exec_echo() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ToolExecutionContext {
+        session_id: "test".into(),
+        working_dir: dir.path().to_string_lossy().to_string(),
+    };
+    let tool = find_tool(&FsToolProvider, "shell_exec");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let result = assert_tool_ok(rt.block_on(tool.execute(
+        serde_json::json!({"command": "echo hello world"}), &ctx
+    )));
+    assert_eq!(result.content.trim(), "hello world");
+}
+
+#[test]
+fn test_shell_exec_exit_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ToolExecutionContext {
+        session_id: "test".into(),
+        working_dir: dir.path().to_string_lossy().to_string(),
+    };
+    let tool = find_tool(&FsToolProvider, "shell_exec");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let result = rt.block_on(tool.execute(
+        serde_json::json!({"command": "exit 42"}), &ctx
+    )).unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("exit code 42"));
+}
+
+#[test]
+fn test_shell_exec_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ToolExecutionContext {
+        session_id: "test".into(),
+        working_dir: dir.path().to_string_lossy().to_string(),
+    };
+    let tool = find_tool(&FsToolProvider, "shell_exec");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let result = rt.block_on(tool.execute(
+        serde_json::json!({"command": "sleep 10", "timeout_secs": 1}), &ctx
+    ));
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("timed out"));
+}
+
+#[test]
+fn test_web_fetch_definition() {
+    let provider = FsToolProvider;
+    let scope = ToolProviderScope::new(".");
+    let tools = provider.tools(&scope);
+    let tool = tools.iter().find(|t| t.definition().name == "web_fetch").unwrap();
+    let def = tool.definition();
+    assert_eq!(def.name, "web_fetch");
+    assert!(def.parameters["properties"]["url"].is_object());
+    assert!(def.parameters["required"].as_array().unwrap().contains(&serde_json::json!("url")));
+}
+
+#[test]
 fn test_fs_tool_provider_registration() {
     let provider = FsToolProvider;
     let scope = ToolProviderScope::new(".");
     let tools = provider.tools(&scope);
     let names: Vec<String> = tools.iter().map(|t| t.definition().name.clone()).collect();
-    assert_eq!(names, vec!["fs_read", "fs_write", "fs_ls", "fs_find", "fs_grep", "fs_info"]);
+    assert_eq!(names, vec!["fs_read", "fs_write", "fs_ls", "fs_find", "fs_grep", "fs_info", "shell_exec", "web_fetch"]);
 }

@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 mod clipboard;
 mod markdown;
 mod run;
+mod storage;
 
 #[derive(Parser)]
 #[command(name = "aa", version, about = "aaBot - 个人 AI 助手")]
@@ -45,6 +46,8 @@ enum Command {
     Tool(ToolArgs),
     /// 扩展管理
     Extension(ExtensionArgs),
+    /// 会话管理
+    Session(SessionArgs),
 }
 
 #[derive(clap::Args)]
@@ -70,6 +73,20 @@ enum ExtensionCommand {
     List,
 }
 
+#[derive(clap::Args)]
+struct SessionArgs {
+    #[command(subcommand)]
+    command: SessionCommand,
+}
+
+#[derive(Subcommand)]
+enum SessionCommand {
+    /// 列出所有会话
+    List,
+    /// 删除会话
+    Delete { session_id: String },
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     let args = Cli::parse();
@@ -89,7 +106,14 @@ fn main() {
         Some(Command::Serve { port }) => {
             let rt = tokio::runtime::Runtime::new().expect("tokio rt");
             rt.block_on(async {
-                aa_server::serve(port).await.expect("server failed");
+                aa_server::serve(
+                    port,
+                    args.provider.as_deref(),
+                    args.model.as_deref(),
+                    args.base_url.as_deref(),
+                )
+                .await
+                .expect("server failed");
             });
         }
         Some(Command::Attach { ref url }) => {
@@ -101,6 +125,30 @@ fn main() {
         }
         Some(Command::Extension(ref _ext_args)) => {
             println!("No extensions loaded (built-in only)");
+        }
+        Some(Command::Session(ref session_args)) => {
+            match &session_args.command {
+                SessionCommand::List => {
+                    match storage::list_sessions() {
+                        Ok(sessions) => {
+                            if sessions.is_empty() {
+                                println!("No saved sessions");
+                            } else {
+                                println!("Sessions:");
+                                for s in &sessions {
+                                    println!("  {}  (model: {}, {} msgs)",
+                                        &s.session_id[..8], s.model, s.messages.len());
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Error: {e}"),
+                    }
+                }
+                SessionCommand::Delete { session_id } => {
+                    storage::delete_session(session_id).ok();
+                    println!("Deleted session {session_id}");
+                }
+            }
         }
     }
 }
@@ -158,9 +206,26 @@ async fn cmd_tool(args: &ToolArgs) {
 }
 
 pub(crate) fn build_kernel() -> aa_kernel::Kernel {
-    aa_kernel::Kernel::builder()
-        .with_tool_provider(Arc::new(aa_function_tools::FsToolProvider))
-        .build()
+    let mut builder = aa_kernel::Kernel::builder()
+        .with_tool_provider(Arc::new(aa_function_tools::FsToolProvider));
+
+    // Load MCP servers from AA_MCP_SERVERS env var
+    if let Ok(json_str) = std::env::var("AA_MCP_SERVERS") {
+        if !json_str.is_empty() {
+            match serde_json::from_str(&json_str) {
+                Ok(val) => {
+                    builder = builder.with_tool_provider(
+                        Arc::new(aa_extension_mcp::McpToolProvider::from_json(val)),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("AA_MCP_SERVERS parse error: {e}");
+                }
+            }
+        }
+    }
+
+    builder.build()
 }
 
 pub(crate) fn build_registry(

@@ -25,6 +25,7 @@ type Registry = Arc<RwLock<aa_kernel::ToolRegistry>>;
 #[derive(Clone)]
 struct AppState {
     registry: Registry,
+    resolved: aa_config::ResolvedConfig,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -274,8 +275,7 @@ async fn chat_sse(
         .run_id
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    let config = aa_config::Config::load();
-    let resolved = config.resolve(None, None, None);
+    let resolved = state.resolved.clone();
 
     tokio::spawn(async move {
         if resolved.provider != "ollama" && resolved.api_key.is_empty() {
@@ -606,8 +606,8 @@ async fn openapi_json() -> Json<serde_json::Value> {
 // Public API
 // ---------------------------------------------------------------------------
 
-fn build_app(registry: Registry) -> Router {
-    let state = AppState { registry };
+fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig) -> Router {
+    let state = AppState { registry, resolved };
 
     Router::new()
         .route("/health", get(health))
@@ -618,15 +618,47 @@ fn build_app(registry: Registry) -> Router {
         .with_state(state)
 }
 
+/// Build the kernel with built-in tool providers and optional MCP extensions.
+fn build_kernel() -> aa_kernel::Kernel {
+    let mut builder = aa_kernel::Kernel::builder()
+        .with_tool_provider(std::sync::Arc::new(aa_function_tools::FsToolProvider));
+
+    // Load MCP servers from AA_MCP_SERVERS env var
+    if let Ok(json_str) = std::env::var("AA_MCP_SERVERS") {
+        if !json_str.is_empty() {
+            match serde_json::from_str(&json_str) {
+                Ok(val) => {
+                    builder = builder.with_tool_provider(
+                        std::sync::Arc::new(aa_extension_mcp::McpToolProvider::from_json(val)),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("AA_MCP_SERVERS parse error: {e}");
+                }
+            }
+        }
+    }
+
+    builder.build()
+}
+
 /// Start the aa server on the given port.
-pub async fn serve(port: u16) -> anyhow::Result<()> {
-    let kernel = aa_kernel::Kernel::builder()
-        .with_tool_provider(std::sync::Arc::new(aa_function_tools::FsToolProvider))
-        .build();
+///
+/// Optional config overrides (provider, model, base_url) take highest priority.
+pub async fn serve(
+    port: u16,
+    cli_provider: Option<&str>,
+    cli_model: Option<&str>,
+    cli_base_url: Option<&str>,
+) -> anyhow::Result<()> {
+    let kernel = build_kernel();
     let scope = aa_kernel::ToolProviderScope::new(".");
     let registry = Arc::new(RwLock::new(kernel.build_tool_registry(&scope)));
 
-    let app = build_app(registry);
+    let config = aa_config::Config::load();
+    let resolved = config.resolve(cli_provider, cli_model, cli_base_url);
+
+    let app = build_app(registry, resolved);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await

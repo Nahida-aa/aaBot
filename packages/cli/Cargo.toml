@@ -8,6 +8,7 @@ description = "aaBot CLI entry point"
 [dependencies]
 aa-kernel = { path = "../kernel" }
 aa-function-tools = { path = "../function-tools" }
+aa-extension-mcp = { path = "../extension-mcp" }
 aa-core = { path = "../core" }
 aa-llm = { path = "../llm" }
 aa-ollama = { path = "../ollama" }
@@ -17,9 +18,12 @@ aa-server = { path = "../server" }
 clap = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
+serde = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = "0.3"
 anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
 ratatui = "0.30"
 crossterm = { version = "0.29", features = ["osc52"] }
 pulldown-cmark = "0.13"

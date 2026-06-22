@@ -1,9 +1,10 @@
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use aa_kernel::tool_provider::*;
 use async_trait::async_trait;
 use tokio::fs;
+use reqwest::Client;
 
 pub struct FsToolProvider;
 
@@ -16,6 +17,8 @@ impl ToolProvider for FsToolProvider {
             Arc::new(FsFind),
             Arc::new(FsGrep),
             Arc::new(FsInfo),
+            Arc::new(ShellExec),
+            Arc::new(WebFetch),
         ]
     }
 }
@@ -249,6 +252,124 @@ impl Tool for FsInfo {
             "created": meta.created().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()),
             "readonly": meta.permissions().readonly(),
         })).unwrap_or_default()))
+    }
+}
+
+struct ShellExec;
+
+#[async_trait]
+impl Tool for ShellExec {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "shell_exec".into(),
+            description: "Execute a shell command and return stdout + stderr output".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "Shell command to execute" },
+                    "timeout_secs": { "type": "integer", "description": "Timeout in seconds (default 30)" }
+                },
+                "required": ["command"]
+            }),
+            origin: ToolOrigin::BuiltIn,
+            execution_mode: ExecutionMode::Sequential,
+        }
+    }
+
+    async fn execute(&self, arguments: serde_json::Value, ctx: &ToolExecutionContext) -> Result<ToolResult, ToolError> {
+        let command = req_str(&arguments, "command")?;
+        let timeout_secs = arguments.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(30);
+
+        let output = tokio::time::timeout(
+            Duration::from_secs(timeout_secs),
+            tokio::process::Command::new("sh")
+                .arg("-c")
+                .arg(&command)
+                .current_dir(&ctx.working_dir)
+                .output(),
+        )
+        .await
+        .map_err(|_| ToolError::Execution(format!("command timed out after {timeout_secs}s: {command}")))?
+        .map_err(|e| ToolError::Execution(format!("spawn: {e}")))?;
+
+        let mut text = String::new();
+        if !output.stdout.is_empty() {
+            text.push_str(&String::from_utf8_lossy(&output.stdout));
+        }
+        if !output.stderr.is_empty() {
+            if !text.is_empty() { text.push('\n'); }
+            text.push_str(&String::from_utf8_lossy(&output.stderr));
+        }
+
+        if output.status.success() {
+            Ok(ToolResult::text(text))
+        } else {
+            let code = output.status.code().map_or("?".into(), |c| c.to_string());
+            Ok(ToolResult::error(format!("exit code {code}:\n{text}")))
+        }
+    }
+}
+
+struct WebFetch;
+
+#[async_trait]
+impl Tool for WebFetch {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "web_fetch".into(),
+            description: "Fetch a URL and return its content as text (markdown preferred, HTML otherwise)".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "URL to fetch" },
+                    "timeout_secs": { "type": "integer", "description": "Timeout in seconds (default 15)" }
+                },
+                "required": ["url"]
+            }),
+            origin: ToolOrigin::BuiltIn,
+            execution_mode: ExecutionMode::Sequential,
+        }
+    }
+
+    async fn execute(&self, arguments: serde_json::Value, _ctx: &ToolExecutionContext) -> Result<ToolResult, ToolError> {
+        let url = req_str(&arguments, "url")?;
+        let timeout_secs = arguments.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(15);
+
+        let client = Client::builder()
+            .timeout(Duration::from_secs(timeout_secs))
+            .user_agent("aaBot/0.1")
+            .build()
+            .map_err(|e| ToolError::Execution(format!("build client: {e}")))?;
+
+        let response = client.get(&url)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    ToolError::Execution(format!("timeout after {timeout_secs}s: {url}"))
+                } else if e.is_connect() {
+                    ToolError::Execution(format!("connection failed: {url} — {e}"))
+                } else {
+                    ToolError::Execution(format!("fetch {url}: {e}"))
+                }
+            })?;
+
+        let status = response.status();
+        let text = response.text()
+            .await
+            .map_err(|e| ToolError::Execution(format!("read body: {e}")))?;
+
+        if status.is_success() {
+            let truncated = if text.len() > 100_000 {
+                let t: String = text.chars().take(100_000).collect();
+                format!("{t}\n\n...(truncated, total {} chars)", text.len())
+            } else {
+                text
+            };
+            Ok(ToolResult::text(truncated))
+        } else {
+            Ok(ToolResult::error(format!("HTTP {status}:\n{text}")))
+        }
     }
 }
 
