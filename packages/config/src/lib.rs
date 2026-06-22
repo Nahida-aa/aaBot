@@ -1,0 +1,223 @@
+//! aaBot LLM 配置系统。
+//!
+//! 加载顺序（后面的覆盖前面的）：
+//!   1. 硬编码默认值
+//!   2. `AA_*` 环境变量
+//!   3. 旧的 `AA_LLM_*` 环境变量（向后兼容）
+//!   4. `aa.json`（当前目录或 `~/.config/aa/`）
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use serde::Deserialize;
+
+/// 完整的 LLM 配置。
+#[derive(Debug, Clone, Deserialize)]
+pub struct Config {
+    /// `provider/model` 格式的模型标识。
+    #[serde(default)]
+    pub model: Option<String>,
+    /// 按 provider 名称索引的配置。
+    #[serde(default)]
+    pub provider: HashMap<String, ProviderConfig>,
+}
+
+/// 单个 provider 的配置。
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProviderConfig {
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+/// 解析后的运行配置（所有字段都已填充默认值）。
+#[derive(Debug, Clone)]
+pub struct ResolvedConfig {
+    /// provider 标识，如 `"openai"` 或 `"ollama"`。
+    pub provider: String,
+    /// 模型名称，如 `"gpt-4o-mini"`。
+    pub model: String,
+    /// API key（可能为空）。
+    pub api_key: String,
+    /// API base URL。
+    pub base_url: String,
+}
+
+impl Config {
+    /// 从标准位置加载 `aa.json`。
+    ///
+    /// 搜索路径（先找到就用）：
+    /// 1. `./aa.json`
+    /// 2. `$HOME/.config/aa/aa.json`
+    pub fn load() -> Self {
+        for path in config_paths() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(cfg) = serde_json::from_str(&content) {
+                    return cfg;
+                }
+            }
+        }
+        Config {
+            model: None,
+            provider: HashMap::new(),
+        }
+    }
+
+    /// 将配置解析为运行时值。
+    ///
+    /// 优先级（高 → 低）：
+    /// - CLI 参数（调用者传入的 `cli_*`）
+    /// - `AA_MODEL` / `AA_PROVIDER` / `AA_API_KEY` / `AA_BASE_URL` env vars
+    /// - 旧的 `AA_LLM_*` 环境变量（向后兼容）
+    /// - `aa.json` 中的值
+    /// - 硬编码默认值
+    pub fn resolve(&self, cli_provider: Option<&str>, cli_model: Option<&str>, cli_base_url: Option<&str>) -> ResolvedConfig {
+        // 决定 provider
+        let provider = pick(
+            cli_provider.map(String::from),
+            env("AA_PROVIDER"),
+            env("AA_LLM_PROVIDER"),
+            self.model.as_ref().and_then(|m| m.split_once('/')).map(|(p, _)| p.to_string()),
+            "ollama",
+        );
+
+        // 决定 model name
+        let default_model = match provider.as_str() {
+            "ollama" => "gemma4:31b-cloud",
+            _ => "gpt-4o-mini",
+        };
+
+        let model = pick(
+            cli_model.map(String::from),
+            env("AA_MODEL"),
+            env("AA_LLM_MODEL"),
+            self.model.as_ref().map(|m| {
+                m.split_once('/').map(|(_, m)| m.to_string()).unwrap_or_else(|| m.clone())
+            }),
+            default_model,
+        );
+
+        // 决定 API key
+        let api_key = pick(
+            env("AA_API_KEY"),
+            env("AA_LLM_API_KEY"),
+            self.provider.get(&provider).and_then(|p| p.api_key.clone()),
+            None,
+            "",
+        );
+
+        // 决定 base URL
+        let default_base_url = match provider.as_str() {
+            "ollama" => "http://localhost:11434",
+            _ => "https://api.openai.com/v1",
+        };
+
+        let base_url = pick(
+            cli_base_url.map(String::from),
+            env("AA_BASE_URL"),
+            env("AA_LLM_BASE_URL"),
+            self.provider.get(&provider).and_then(|p| p.base_url.clone()),
+            default_base_url,
+        );
+
+        ResolvedConfig { provider, model, api_key, base_url }
+    }
+}
+
+fn config_paths() -> Vec<PathBuf> {
+    let mut paths = vec![PathBuf::from("aa.json")];
+    if let Ok(home) = std::env::var("HOME") {
+        paths.push(PathBuf::from(home).join(".config").join("aa").join("aa.json"));
+    }
+    paths
+}
+
+fn env(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|v| !v.is_empty())
+}
+
+/// 返回第一个 `Some` 值，全部为 `None` 时返回 `default`。
+fn pick(a: Option<String>, b: Option<String>, c: Option<String>, d: Option<String>, default: &str) -> String {
+    a.or(b).or(c).or(d).unwrap_or_else(|| default.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_defaults() {
+        let cfg = Config { model: None, provider: HashMap::new() };
+        let resolved = cfg.resolve(None, None, None);
+        assert_eq!(resolved.provider, "ollama");
+        assert_eq!(resolved.model, "gemma4:31b-cloud");
+        assert_eq!(resolved.base_url, "http://localhost:11434");
+        assert_eq!(resolved.api_key, "");
+    }
+
+    #[test]
+    fn test_resolve_from_model_string() {
+        let cfg = Config {
+            model: Some("ollama/llama3.2".into()),
+            provider: HashMap::new(),
+        };
+        let resolved = cfg.resolve(None, None, None);
+        assert_eq!(resolved.provider, "ollama");
+        assert_eq!(resolved.model, "llama3.2");
+        assert_eq!(resolved.base_url, "http://localhost:11434");
+    }
+
+    #[test]
+    fn test_resolve_model_without_provider_prefix() {
+        let cfg = Config {
+            model: Some("deepseek-chat".into()),
+            provider: HashMap::new(),
+        };
+        let resolved = cfg.resolve(None, None, None);
+        assert_eq!(resolved.provider, "ollama");
+        assert_eq!(resolved.model, "deepseek-chat");
+    }
+
+    #[test]
+    fn test_resolve_cli_overrides_file() {
+        let cfg = Config {
+            model: Some("ollama/llama3.2".into()),
+            provider: HashMap::new(),
+        };
+        let resolved = cfg.resolve(Some("openai"), Some("gpt-4o"), Some("https://custom.com/v1"));
+        assert_eq!(resolved.provider, "openai");
+        assert_eq!(resolved.model, "gpt-4o");
+        assert_eq!(resolved.base_url, "https://custom.com/v1");
+    }
+
+    #[test]
+    fn test_resolve_provider_config_from_file() {
+        let mut provider = HashMap::new();
+        provider.insert("openai".into(), ProviderConfig {
+            api_key: Some("sk-from-file".into()),
+            base_url: Some("https://file-url.com/v1".into()),
+        });
+        let cfg = Config { model: Some("openai/gpt-4o".into()), provider };
+        let resolved = cfg.resolve(None, None, None);
+        assert_eq!(resolved.api_key, "sk-from-file");
+        assert_eq!(resolved.base_url, "https://file-url.com/v1");
+    }
+
+    #[test]
+    fn test_config_loading() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("aa.json");
+        let mut f = std::fs::File::create(&config_path).unwrap();
+        f.write_all(br#"{"model": "ollama/llama3.2", "provider": {"ollama": {"base_url": "http://localhost:12345"}}}"#).unwrap();
+
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        let cfg = Config::load();
+        std::env::set_current_dir(prev).unwrap();
+
+        assert_eq!(cfg.model.as_deref(), Some("ollama/llama3.2"));
+        assert_eq!(cfg.provider.get("ollama").unwrap().base_url.as_deref(), Some("http://localhost:12345"));
+    }
+}

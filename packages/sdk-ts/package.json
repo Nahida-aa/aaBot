@@ -1,0 +1,16 @@
+{
+  "name": "@aa/sdk",
+  "type": "module",
+  "version": "0.0.1",
+  "main": "src/index.ts",
+  "scripts": {
+    "codegen": "openapi-ts -i ./openapi.json -o ./src/client -c @hey-api/client-fetch"
+  },
+  "dependencies": {
+    "@hey-api/client-fetch": "^0.10.0"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.98.2",
+    "typescript": "^6.0.3"
+  }
+}

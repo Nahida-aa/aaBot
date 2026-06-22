@@ -1,0 +1,13 @@
+[package]
+name = "aa-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "aaBot LLM 配置系统 (aa.json + env var fallback)"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

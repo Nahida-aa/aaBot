@@ -18,6 +18,7 @@ use axum::{
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+use utoipa::{OpenApi, ToSchema};
 
 type Registry = Arc<RwLock<aa_kernel::ToolRegistry>>;
 
@@ -26,29 +27,36 @@ struct AppState {
     registry: Registry,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct ToolInfo {
     name: String,
     description: String,
     parameters: serde_json::Value,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct HealthResponse {
-    status: &'static str,
+    status: String,
     tool_count: usize,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 struct ToolCallRequest {
     arguments: serde_json::Value,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ToolResult {
+    content: String,
+    is_error: bool,
+    metadata: Option<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
 // AG-UI wire format types
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, ToSchema)]
 struct ChatMsg {
     role: String,
     #[serde(default)]
@@ -64,7 +72,7 @@ struct ChatMsg {
     id: Option<String>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, ToSchema)]
 struct ToolCallWire {
     id: String,
     #[serde(rename = "type")]
@@ -72,20 +80,20 @@ struct ToolCallWire {
     function: ToolCallFuncWire,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, ToSchema)]
 struct ToolCallFuncWire {
     name: String,
     arguments: String,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, ToSchema)]
 struct ToolDef {
     name: String,
     description: String,
     parameters: serde_json::Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 struct AGUIChatRequest {
     #[serde(default)]
     thread_id: Option<String>,
@@ -93,6 +101,87 @@ struct AGUIChatRequest {
     run_id: Option<String>,
     messages: Vec<ChatMsg>,
     tools: Vec<ToolDef>,
+}
+
+// ---------------------------------------------------------------------------
+// Message Part types (for TUI PromptInfo)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct TextPart {
+    id: String,
+    session_id: String,
+    message_id: String,
+    r#type: String,
+    text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    synthetic: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ignored: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    time: Option<PartTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct FilePart {
+    id: String,
+    session_id: String,
+    message_id: String,
+    r#type: String,
+    mime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    filename: Option<String>,
+    url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<FilePartSource>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct FilePartSource {
+    text: PartTextRange,
+    r#type: String,
+    path: String,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PartTextRange {
+    value: String,
+    start: usize,
+    end: usize,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct AgentPart {
+    id: String,
+    session_id: String,
+    message_id: String,
+    r#type: String,
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<AgentPartSource>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct AgentPartSource {
+    value: String,
+    start: usize,
+    end: usize,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct PartTime {
+    start: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    end: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -141,26 +230,19 @@ fn chat_msg_to_message(msg: &ChatMsg) -> Message {
     }
 }
 
-fn create_provider() -> Box<dyn ModelProvider> {
-    let provider_type = std::env::var("AA_LLM_PROVIDER").unwrap_or_else(|_| "openai".into());
-    match provider_type.as_str() {
+fn create_provider(cfg: &aa_config::ResolvedConfig) -> Box<dyn ModelProvider> {
+    match cfg.provider.as_str() {
         "ollama" => {
-            let config = aa_ollama::OllamaConfig {
-                base_url: std::env::var("AA_LLM_BASE_URL")
-                    .unwrap_or_else(|_| "http://localhost:11434".into()),
-                default_model: std::env::var("AA_LLM_MODEL")
-                    .unwrap_or_else(|_| "llama3.2".into()),
-            };
-            Box::new(aa_ollama::OllamaProvider::new(config))
+            Box::new(aa_ollama::OllamaProvider::new(aa_ollama::OllamaConfig {
+                base_url: cfg.base_url.clone(),
+                default_model: cfg.model.clone(),
+            }))
         }
         _ => {
-            let api_key = std::env::var("AA_LLM_API_KEY").unwrap_or_default();
             Box::new(aa_llm::OpenAiCompatibleProvider::new(aa_llm::OpenAiConfig {
-                base_url: std::env::var("AA_LLM_BASE_URL")
-                    .unwrap_or_else(|_| "https://api.openai.com/v1".into()),
-                api_key,
-                default_model: std::env::var("AA_LLM_MODEL")
-                    .unwrap_or_else(|_| "gpt-4o-mini".into()),
+                base_url: cfg.base_url.clone(),
+                api_key: cfg.api_key.clone(),
+                default_model: cfg.model.clone(),
             }))
         }
     }
@@ -218,13 +300,13 @@ async fn chat_sse(
             })
         })
         .collect();
-    let model = std::env::var("AA_LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
+
+    let config = aa_config::Config::load();
+    let resolved = config.resolve(None, None, None);
 
     tokio::spawn(async move {
         // --- API key check ---
-        if std::env::var("AA_LLM_PROVIDER").unwrap_or_default() != "ollama"
-            && std::env::var("AA_LLM_API_KEY").unwrap_or_default().is_empty()
-        {
+        if resolved.provider != "ollama" && resolved.api_key.is_empty() {
             send_json(
                 &tx,
                 serde_json::json!({
@@ -238,7 +320,7 @@ async fn chat_sse(
             return;
         }
 
-        let provider = create_provider();
+        let provider = create_provider(&resolved);
 
         // --- RUN_STARTED ---
         send_json(
@@ -281,7 +363,7 @@ async fn chat_sse(
                 tools: tool_defs.clone(),
                 config: ModelConfig {
                     provider: ProviderId("server".into()),
-                    model: model.clone(),
+                    model: resolved.model.clone(),
                     temperature: None,
                     max_tokens: Some(4096),
                     top_p: None,
@@ -511,14 +593,30 @@ async fn chat_sse(
 // Legacy endpoints (unchanged)
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Server health status", body = HealthResponse)
+    ),
+    tag = "aaBot"
+)]
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     let count = state.registry.read().await.len();
     Json(HealthResponse {
-        status: "ok",
+        status: "ok".to_string(),
         tool_count: count,
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/tools",
+    responses(
+        (status = 200, description = "List all available tools", body = Vec<ToolInfo>)
+    ),
+    tag = "aaBot"
+)]
 async fn list_tools(State(state): State<AppState>) -> Json<Vec<ToolInfo>> {
     let registry = state.registry.read().await;
     let tools = registry
@@ -533,11 +631,25 @@ async fn list_tools(State(state): State<AppState>) -> Json<Vec<ToolInfo>> {
     Json(tools)
 }
 
+#[utoipa::path(
+    post,
+    path = "/tools/{name}",
+    params(
+        ("name" = String, Path, description = "Tool name")
+    ),
+    request_body = ToolCallRequest,
+    responses(
+        (status = 200, description = "Tool execution result", body = ToolResult),
+        (status = 404, description = "Tool not found", body = String),
+        (status = 500, description = "Tool execution failed", body = String),
+    ),
+    tag = "aaBot"
+)]
 async fn call_tool(
     State(state): State<AppState>,
     Path(name): Path<String>,
     Json(req): Json<ToolCallRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<ToolResult>, (StatusCode, String)> {
     let ctx = aa_kernel::tool_provider::ToolExecutionContext {
         session_id: "http".into(),
         working_dir: ".".into(),
@@ -556,11 +668,46 @@ async fn call_tool(
         )
     })?;
 
-    Ok(Json(serde_json::json!({
-        "content": result.content,
-        "is_error": result.is_error,
-        "metadata": result.metadata,
-    })))
+    Ok(Json(ToolResult {
+        content: result.content,
+        is_error: result.is_error,
+        metadata: result.metadata,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// OpenAPI
+// ---------------------------------------------------------------------------
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(health, list_tools, call_tool),
+    components(schemas(
+        HealthResponse,
+        ToolInfo,
+        ToolCallRequest,
+        ToolResult,
+        AGUIChatRequest,
+        ChatMsg,
+        ToolDef,
+        ToolCallWire,
+        ToolCallFuncWire,
+        TextPart,
+        FilePart,
+        FilePartSource,
+        PartTextRange,
+        AgentPart,
+        AgentPartSource,
+        PartTime
+    )),
+    tags(
+        (name = "aaBot", description = "aaBot API")
+    )
+)]
+struct ApiDoc;
+
+async fn openapi_json() -> Json<serde_json::Value> {
+    Json(serde_json::to_value(ApiDoc::openapi()).unwrap())
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +731,7 @@ async fn main() {
         .route("/tools", get(list_tools))
         .route("/tools/{name}", post(call_tool))
         .route("/chat", post(chat_sse))
+        .route("/openapi.json", get(openapi_json))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")

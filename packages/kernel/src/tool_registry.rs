@@ -35,6 +35,10 @@ impl ToolRegistry {
         self.tools.iter().map(|t| t.definition()).collect()
     }
 
+    pub fn all_tools(&self) -> Vec<Arc<dyn Tool>> {
+        self.tools.clone()
+    }
+
     pub fn len(&self) -> usize {
         self.tools.len()
     }

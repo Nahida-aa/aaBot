@@ -1,0 +1,10 @@
+[package]
+name = "aa-session"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aa-core = { path = "../core" }
+aa-kernel = { path = "../kernel" }
+tokio = { workspace = true, features = ["full"] }
+serde_json = { workspace = true }

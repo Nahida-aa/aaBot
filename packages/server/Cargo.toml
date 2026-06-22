@@ -12,6 +12,7 @@ aa-extensions = { path = "../extensions" }
 aa-function-tools = { path = "../function-tools" }
 aa-llm = { path = "../llm" }
 aa-ollama = { path = "../ollama" }
+aa-config = { path = "../config" }
 axum = { workspace = true, features = ["default"] }
 tower-http = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -22,3 +23,4 @@ futures-util = { workspace = true }
 tracing-subscriber = "0.3"
 clap = { workspace = true }
 uuid = { workspace = true }
+utoipa = { version = "5", features = ["axum_extras"] }

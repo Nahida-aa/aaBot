@@ -83,6 +83,7 @@ pub(crate) struct ChatResponse {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct Choice {
     pub message: ResponseMessage,
     #[serde(default)]
@@ -90,6 +91,7 @@ pub(crate) struct Choice {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct ResponseMessage {
     pub role: String,
     #[serde(default)]
@@ -122,6 +124,7 @@ pub(crate) struct StreamChoice {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct Delta {
     #[serde(default)]
     pub role: Option<String>,
@@ -132,6 +135,7 @@ pub(crate) struct Delta {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 pub(crate) struct StreamToolCall {
     pub index: u64,
     pub id: Option<String>,

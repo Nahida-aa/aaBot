@@ -207,6 +207,7 @@ pub struct Registrar {
         i32,
         Arc<dyn LifecycleHandler>,
     )>,
+    #[allow(dead_code)]
     capabilities: Vec<ExtensionCapability>,
 }
 

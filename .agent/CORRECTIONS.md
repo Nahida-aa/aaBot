@@ -65,3 +65,44 @@
 - `McpClient` 用 `kill_on_drop(true)` + `Option<Child>` + `impl Drop` 清理子进程
 - 构造函数同步连接（`block_on` + one-shot runtime），避免 `ToolPack::tools()` 异步问题
 - 响应匹配：发送 request → 逐行读 stdout → 按 ID 匹配
+
+## OpenTUI 版本 & JSX 机制
+
+### `@opentui/*` 必须用 0.3.4（0.4.1 context 不传播）
+- 原因：`@opentui/solid@0.4.1` 的 `mountSolidRoot` 使用 `get children() { return createComponent2(node, {}); }` 创建组件树，Solid context（`createContext`/`useContext`）不从用户定义的 provider（`ToastProvider`、`RouteProvider` 等）传播到子组件
+- 0.3.4 的 `mountSolidRoot` 内部实现不同，context 能正常传播
+- 同时 `solid-js` 保持 1.9.x（opencode 用 1.9.10，我们 1.9.12）
+
+### JSX 转换机制（0.3.4 无 `jsx-runtime.js`）
+- 0.3.4 没有 `jsx-runtime.js` 文件（只有 `jsx-runtime.d.ts` 提供类型）
+- JSX 转换通过 **Bun 插件 + Babel** 完成，不是通过 `jsxImportSource` 的运行时导入
+- **必须**有 `bunfig.toml`：`preload = ["@opentui/solid/preload"]`
+- `preload.ts` 调用 `ensureSolidTransformPlugin()`，注册 `bun-plugin-solid`，拦截 `.tsx`/`.jsx` 文件，用 Babel (`babel-preset-solid` + `@babel/preset-typescript`) 将 JSX 转换为对 `@opentui/solid` 的 `h()`/`createComponent()` 调用
+- `tsconfig.json` 的 `"jsxImportSource": "@opentui/solid"` 仅用于 TypeScript 类型检查和编辑器 IntelliSense
+
+### 0.4.1 vs 0.3.4 文件差异
+| 特性 | 0.4.1 | 0.3.4 |
+|------|-------|-------|
+| `jsx-runtime.js` | 有（从 solid-js 导出 `jsx`/`jsxDEV`） | 无（依赖 Babel 插件） |
+| Context 传播 | ❌ 自定义 provider 不传播 | ✅ 正常 |
+| `--conditions=browser` | 需要（防 SSR build） | 需要（需 Babel 插件） |
+| `bunfig.toml` | 不需要（有 `jsx-runtime.js`） | **需要**（`preload = ["@opentui/solid/preload"]`） |
+| 依赖 | 仅 `solid-js` | `@babel/core` + `babel-preset-solid` + `@babel/preset-typescript`（已在 package.json dependencies） |
+
+## 待修复的问题
+
+### Toast 不可见
+- `render_toast`: Clear + Block::bordered(green) 叠加在渲染区中间，用户说看不到
+- `eprintln!` stderr 调试已加（会直接打印到终端，不受 Ratatui 控制）
+- 可能原因：Clear 后未 flush；渲染坐标超界；被后续 render 覆盖
+- 需在真实终端确认 `render_toast` 坐标和渲染时机
+
+### ~~复制后选区高亮不消失~~ ✅ 已修复
+- 方案：Ratatui 自有选区系统（非终端原生 PRIMARY selection）
+- **启用鼠标捕获**（`EnableMouseCapture`/`DisableMouseCapture` on enter/exit）
+- **鼠标行为**：Down → 按消息选中 → Drag → 扩展范围 → Up → 自动复制 + 清选区 + toast
+- **键盘行为**：`Ctrl+C`（有选区→复制选区，无选区→复制全部），`Ctrl+Y`（复制最后回复），`Escape`（清选区）
+- **渲染**：选中消息 `Color::DarkGray` 背景
+- **坐标映射**：`render_messages()` 构建 `msg_line_map: Vec<usize>`（每行→消息索引），鼠标事件通过 `(row - msg_area_y + scroll)` 查表
+- **代价**：终端原生鼠标选中失效（不能拖选到别的应用）
+- **文件**：`app.rs`（handle_mouse, copy_selected_messages, selected_range），`render.rs`（msg_line_map, 高亮渲染），`mod.rs`（鼠标事件路由）

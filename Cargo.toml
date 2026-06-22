@@ -11,6 +11,8 @@ members = [
     "packages/cli",
     "packages/server",
     "packages/ollama",
+    "packages/config",
+    "packages/session",
 ]
 
 [workspace.package]
