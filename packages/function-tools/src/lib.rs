@@ -19,6 +19,8 @@ impl ToolProvider for FsToolProvider {
             Arc::new(FsInfo),
             Arc::new(ShellExec),
             Arc::new(WebFetch),
+            Arc::new(FsReadRange),
+            Arc::new(FsEdit),
         ]
     }
 }
@@ -370,6 +372,135 @@ impl Tool for WebFetch {
         } else {
             Ok(ToolResult::error(format!("HTTP {status}:\n{text}")))
         }
+    }
+}
+
+struct FsReadRange;
+
+#[async_trait]
+impl Tool for FsReadRange {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "fs_read_range".into(),
+            description: "Read a range of lines from a file (1-indexed)".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to file" },
+                    "start": { "type": "integer", "description": "Start line (1-indexed, default 1)" },
+                    "end": { "type": "integer", "description": "End line (inclusive, default end of file)" }
+                },
+                "required": ["path"]
+            }),
+            origin: ToolOrigin::BuiltIn,
+            execution_mode: ExecutionMode::Sequential,
+        }
+    }
+
+    async fn execute(&self, arguments: serde_json::Value, ctx: &ToolExecutionContext) -> Result<ToolResult, ToolError> {
+        let path = req_str(&arguments, "path")?;
+        let start = arguments.get("start").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
+        let full = resolve_path(&path, ctx);
+        let content = fs::read_to_string(&full)
+            .await
+            .map_err(|e| ToolError::Execution(format!("read {path}: {e}")))?;
+
+        let lines: Vec<&str> = content.lines().collect();
+        let total = lines.len();
+        let end = arguments.get("end")
+            .and_then(|v| v.as_u64())
+            .map(|v| (v as usize).min(total))
+            .unwrap_or(total);
+
+        if start > total {
+            return Ok(ToolResult::error(format!("start line {start} > total lines {total}")));
+        }
+        if start > end {
+            return Ok(ToolResult::error(format!("start {start} > end {end}")));
+        }
+
+        let selected: Vec<String> = lines[(start - 1)..end]
+            .iter()
+            .enumerate()
+            .map(|(i, line)| format!("{:>6}  {}", start + i, line))
+            .collect();
+
+        let result = format!(
+            "{}:{}-{} ({}/{})\n{}\n",
+            path, start, end, end - start + 1, total,
+            selected.join("\n")
+        );
+        Ok(ToolResult::text(result))
+    }
+}
+
+struct FsEdit;
+
+#[async_trait]
+impl Tool for FsEdit {
+    fn definition(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: "fs_edit".into(),
+            description: "Search and replace text in a file. Finds the exact string `old` and replaces it with `new`. Only replaces the first occurrence — ensure `old` is unique in the file for predictable results.".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path to file" },
+                    "old": { "type": "string", "description": "Exact string to find (must be unique)" },
+                    "new": { "type": "string", "description": "Replacement string" }
+                },
+                "required": ["path", "old", "new"]
+            }),
+            origin: ToolOrigin::BuiltIn,
+            execution_mode: ExecutionMode::Sequential,
+        }
+    }
+
+    async fn execute(&self, arguments: serde_json::Value, ctx: &ToolExecutionContext) -> Result<ToolResult, ToolError> {
+        let path = req_str(&arguments, "path")?;
+        let old = req_str(&arguments, "old")?;
+        let new = req_str(&arguments, "new")?;
+        let full = resolve_path(&path, ctx);
+
+        let content = fs::read_to_string(&full)
+            .await
+            .map_err(|e| ToolError::Execution(format!("read {path}: {e}")))?;
+
+        let count = content.matches(&old).count();
+
+        if count == 0 {
+            return Ok(ToolResult::error(format!("string not found in {path}")));
+        }
+
+        if count > 1 {
+            // Find context for diagnostic
+            let mut previews = Vec::new();
+            let mut search_start = 0;
+            for _ in 0..3.min(count) {
+                if let Some(pos) = content[search_start..].find(&old) {
+                    let abs = search_start + pos;
+                    let ctx_start = abs.saturating_sub(40);
+                    let ctx_end = (abs + old.len() + 40).min(content.len());
+                    previews.push(format!("...{}...", &content[ctx_start..ctx_end].replace('\n', " ")));
+                    search_start = abs + 1;
+                }
+            }
+            let preview = previews.join("\n");
+            return Ok(ToolResult::error(format!(
+                "found {count} occurrences in {path}. Use a more unique string. First matches:\n{preview}"
+            )));
+        }
+
+        let new_content = content.replacen(&old, &new, 1);
+        fs::write(&full, &new_content)
+            .await
+            .map_err(|e| ToolError::Execution(format!("write {path}: {e}")))?;
+
+        let line_no = content.lines().position(|l| l.contains(&old))
+            .map(|i| i + 1)
+            .unwrap_or(0);
+
+        Ok(ToolResult::text(format!("edit {path} at line {line_no}: {} → {}", &old[..old.len().min(50)], &new[..new.len().min(50)])))
     }
 }
 

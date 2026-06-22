@@ -225,10 +225,84 @@ fn test_web_fetch_definition() {
 }
 
 #[test]
+fn test_fs_read_range() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = (1..=20).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    std::fs::write(dir.path().join("test.txt"), &content).unwrap();
+    let ctx = ToolExecutionContext {
+        session_id: "test".into(),
+        working_dir: dir.path().to_string_lossy().to_string(),
+    };
+    let tool = find_tool(&FsToolProvider, "fs_read_range");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let result = assert_tool_ok(rt.block_on(tool.execute(
+        serde_json::json!({"path": "test.txt", "start": 5, "end": 8}), &ctx
+    )));
+    assert!(result.content.contains("line 5"));
+    assert!(result.content.contains("line 8"));
+    assert!(result.content.contains("4/20"));
+}
+
+#[test]
+fn test_fs_edit_simple() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.txt"), "hello world\nfoo bar\n").unwrap();
+    let ctx = ToolExecutionContext {
+        session_id: "test".into(),
+        working_dir: dir.path().to_string_lossy().to_string(),
+    };
+    let tool = find_tool(&FsToolProvider, "fs_edit");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    assert_tool_ok(rt.block_on(tool.execute(
+        serde_json::json!({"path": "test.txt", "old": "world", "new": "there"}), &ctx
+    )));
+    let content = std::fs::read_to_string(dir.path().join("test.txt")).unwrap();
+    assert_eq!(content, "hello there\nfoo bar\n");
+}
+
+#[test]
+fn test_fs_edit_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+    let ctx = ToolExecutionContext {
+        session_id: "test".into(),
+        working_dir: dir.path().to_string_lossy().to_string(),
+    };
+    let tool = find_tool(&FsToolProvider, "fs_edit");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let result = rt.block_on(tool.execute(
+        serde_json::json!({"path": "test.txt", "old": "nope", "new": "x"}), &ctx
+    )).unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("not found"));
+}
+
+#[test]
+fn test_fs_edit_multiple_occurrences() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("test.txt"), "foo\nbar\nfoo\n").unwrap();
+    let ctx = ToolExecutionContext {
+        session_id: "test".into(),
+        working_dir: dir.path().to_string_lossy().to_string(),
+    };
+    let tool = find_tool(&FsToolProvider, "fs_edit");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    let result = rt.block_on(tool.execute(
+        serde_json::json!({"path": "test.txt", "old": "foo", "new": "baz"}), &ctx
+    )).unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("2 occurrences"));
+}
+
+#[test]
 fn test_fs_tool_provider_registration() {
     let provider = FsToolProvider;
     let scope = ToolProviderScope::new(".");
     let tools = provider.tools(&scope);
     let names: Vec<String> = tools.iter().map(|t| t.definition().name.clone()).collect();
-    assert_eq!(names, vec!["fs_read", "fs_write", "fs_ls", "fs_find", "fs_grep", "fs_info", "shell_exec", "web_fetch"]);
+    assert_eq!(names, vec!["fs_read", "fs_write", "fs_ls", "fs_find", "fs_grep", "fs_info", "shell_exec", "web_fetch", "fs_read_range", "fs_edit"]);
 }

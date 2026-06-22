@@ -20,6 +20,9 @@ pub struct Config {
     /// 按 provider 名称索引的配置。
     #[serde(default)]
     pub provider: HashMap<String, ProviderConfig>,
+    /// MCP 服务器配置。
+    #[serde(default)]
+    pub mcp: Option<McpConfig>,
 }
 
 /// 单个 provider 的配置。
@@ -29,6 +32,21 @@ pub struct ProviderConfig {
     pub api_key: Option<String>,
     #[serde(default)]
     pub base_url: Option<String>,
+}
+
+/// MCP 服务器配置。
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpConfig {
+    #[serde(default)]
+    pub servers: HashMap<String, McpServerDef>,
+}
+
+/// 单个 MCP 服务器定义。
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpServerDef {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 /// 解析后的运行配置（所有字段都已填充默认值）。
@@ -45,6 +63,37 @@ pub struct ResolvedConfig {
 }
 
 impl Config {
+    /// Get MCP servers as a JSON value (compatible with `McpToolProvider::from_json`),
+    /// falling back to `AA_MCP_SERVERS` env var for backward compatibility.
+    pub fn mcp_servers_json(&self) -> Option<serde_json::Value> {
+        // aa.json has priority
+        if let Some(mcp) = &self.mcp {
+            if !mcp.servers.is_empty() {
+                let map: serde_json::Map<String, serde_json::Value> = mcp
+                    .servers
+                    .iter()
+                    .map(|(name, def)| {
+                        let val = serde_json::json!({
+                            "command": def.command,
+                            "args": def.args,
+                        });
+                        (name.clone(), val)
+                    })
+                    .collect();
+                return Some(serde_json::Value::Object(map));
+            }
+        }
+        // Fall back to env var
+        if let Ok(json_str) = std::env::var("AA_MCP_SERVERS") {
+            if !json_str.is_empty() {
+                if let Ok(val) = serde_json::from_str(&json_str) {
+                    return Some(val);
+                }
+            }
+        }
+        None
+    }
+
     /// 从标准位置加载 `aa.json`。
     ///
     /// 搜索路径（先找到就用）：
@@ -61,6 +110,7 @@ impl Config {
         Config {
             model: None,
             provider: HashMap::new(),
+            mcp: None,
         }
     }
 
@@ -148,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_resolve_defaults() {
-        let cfg = Config { model: None, provider: HashMap::new() };
+        let cfg = Config { model: None, provider: HashMap::new(), mcp: None };
         let resolved = cfg.resolve(None, None, None);
         assert_eq!(resolved.provider, "ollama");
         assert_eq!(resolved.model, "gemma4:31b-cloud");
@@ -161,6 +211,7 @@ mod tests {
         let cfg = Config {
             model: Some("ollama/llama3.2".into()),
             provider: HashMap::new(),
+            mcp: None,
         };
         let resolved = cfg.resolve(None, None, None);
         assert_eq!(resolved.provider, "ollama");
@@ -173,6 +224,7 @@ mod tests {
         let cfg = Config {
             model: Some("deepseek-chat".into()),
             provider: HashMap::new(),
+            mcp: None,
         };
         let resolved = cfg.resolve(None, None, None);
         assert_eq!(resolved.provider, "ollama");
@@ -184,6 +236,7 @@ mod tests {
         let cfg = Config {
             model: Some("ollama/llama3.2".into()),
             provider: HashMap::new(),
+            mcp: None,
         };
         let resolved = cfg.resolve(Some("openai"), Some("gpt-4o"), Some("https://custom.com/v1"));
         assert_eq!(resolved.provider, "openai");
@@ -198,7 +251,7 @@ mod tests {
             api_key: Some("sk-from-file".into()),
             base_url: Some("https://file-url.com/v1".into()),
         });
-        let cfg = Config { model: Some("openai/gpt-4o".into()), provider };
+        let cfg = Config { model: Some("openai/gpt-4o".into()), provider, mcp: None };
         let resolved = cfg.resolve(None, None, None);
         assert_eq!(resolved.api_key, "sk-from-file");
         assert_eq!(resolved.base_url, "https://file-url.com/v1");
