@@ -11,6 +11,7 @@ interface SessionProps {
     show: (input: { message: string; variant: "info" | "success" | "warning" | "error" }) => void;
     error: (err: unknown) => void;
   };
+  sessionID?: string;
 }
 
 interface Msg {
@@ -45,6 +46,7 @@ export const Session: Component<SessionProps> = (props) => {
 
   const [health] = createResource(() => props.client.health().catch(() => undefined));
   const [tools] = createResource(() => props.client.listTools().catch<ToolDef[]>(() => []));
+  const threadId = props.sessionID || crypto.randomUUID();
 
   const chatHistory = createMemo(() => {
     const msgs = messages();
@@ -86,7 +88,7 @@ export const Session: Component<SessionProps> = (props) => {
 
       let fullContent = "";
 
-      for await (const event of props.client.chat(history, toolDefs)) {
+      for await (const event of props.client.chat(history, toolDefs, threadId)) {
         switch (event.type) {
           case "TEXT_MESSAGE_CONTENT":
             fullContent += event.delta;
@@ -182,6 +184,9 @@ export const Session: Component<SessionProps> = (props) => {
       <box height={1} flexDirection="row">
         <text fg="cyan">aaBot</text>
         <text fg="#666"> {toolCount()} tools</text>
+        {threadId && threadId.length > 0 ? (
+          <text fg="#444"> #{threadId.slice(0, 8)}</text>
+        ) : null}
         <box flexGrow={1} />
         {status() === "error" ? (
           <text fg="red">● err</text>

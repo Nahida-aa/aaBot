@@ -12,6 +12,15 @@ export interface ChatMessage {
   name?: string;
 }
 
+export interface SessionSummary {
+  session_id: string;
+  model: string;
+  provider: string;
+  message_count: number;
+  updated_at: string;
+  created_at: string;
+}
+
 export type SseEvent =
   | { type: "RUN_STARTED"; threadId: string; runId: string }
   | { type: "RUN_FINISHED"; threadId: string; runId: string; finishReason: string }
@@ -40,15 +49,22 @@ export class AaClient {
     return res.json();
   }
 
+  async listSessions(): Promise<SessionSummary[]> {
+    const res = await fetch(`${this.baseUrl}/sessions`);
+    if (!res.ok) return [];
+    return res.json();
+  }
+
   async *chat(
     messages: ChatMessage[],
     tools: ToolDef[],
+    threadId?: string,
   ): AsyncGenerator<SseEvent> {
     const res = await fetch(`${this.baseUrl}/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        thread_id: crypto.randomUUID(),
+        thread_id: threadId ?? crypto.randomUUID(),
         run_id: crypto.randomUUID(),
         messages,
         tools,

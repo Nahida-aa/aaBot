@@ -192,10 +192,14 @@ export const App = (props: { onSnapshot?: () => Promise<string[]>; url?: string 
     <box width="100%" height="100%" flexDirection="column">
       <Switch>
         <Match when={route.data.type === "home"}>
-          <Home client={client} onStart={() => route.navigate({ type: "session", sessionID: "" })} />
+          <Home
+            client={client}
+            onStart={() => route.navigate({ type: "session", sessionID: "" })}
+            onContinue={(id) => route.navigate({ type: "session", sessionID: id })}
+          />
         </Match>
         <Match when={route.data.type === "session"}>
-          <Session client={client} onBack={() => route.navigate({ type: "home" })} toast={toast} />
+          <Session client={client} onBack={() => route.navigate({ type: "home" })} toast={toast} sessionID={(route.data as { type: "session"; sessionID: string }).sessionID} />
         </Match>
       </Switch>
       <Toast />
