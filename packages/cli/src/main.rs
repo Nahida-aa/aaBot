@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand};
 mod clipboard;
 mod markdown;
 mod run;
-mod storage;
 
 #[derive(Parser)]
 #[command(name = "aa", version, about = "aaBot - 个人 AI 助手")]

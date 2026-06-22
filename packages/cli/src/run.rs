@@ -3,8 +3,6 @@ use std::sync::Arc;
 use aa_core::llm::{Message, ModelProvider, Role};
 use clap::Args;
 
-use crate::storage;
-
 #[derive(Args)]
 pub struct RunArgs {
     #[arg(short, long, default_value = ".")]
@@ -66,7 +64,7 @@ pub async fn cmd_run(
     let session_id = match args.session.as_str() {
         "new" => uuid::Uuid::new_v4().to_string(),
         "last" => {
-            match storage::list_sessions() {
+            match aa_session::storage::list() {
                 Ok(sessions) if !sessions.is_empty() => sessions[0].session_id.clone(),
                 _ => {
                     eprintln!("No saved sessions found. Starting new one.");
@@ -79,7 +77,7 @@ pub async fn cmd_run(
 
     // ── Load or init messages ───────────────────────────────
     let mut messages: Vec<Message> = if args.session != "new" {
-        storage::load_session(&session_id).unwrap_or_else(|_| {
+        aa_session::storage::load(&session_id).unwrap_or_else(|_| {
             vec![system_message()]
         })
     } else {
@@ -175,7 +173,7 @@ pub async fn cmd_run(
         messages = result.messages;
 
         // ── Persist after each turn ─────────────────────────
-        if let Err(e) = storage::save_session(
+        if let Err(e) = aa_session::storage::save(
             &session_id,
             &messages,
             &resolved.model,

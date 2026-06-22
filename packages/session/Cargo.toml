@@ -8,3 +8,6 @@ aa-core = { path = "../core" }
 aa-kernel = { path = "../kernel" }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+chrono = { workspace = true }
+anyhow.workspace = true

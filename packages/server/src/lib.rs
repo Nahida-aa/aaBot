@@ -308,7 +308,19 @@ async fn chat_sse(
             }
         };
 
-        let messages: Vec<Message> = req.messages.iter().map(chat_msg_to_message).collect();
+        let mut messages: Vec<Message> = req.messages.iter().map(chat_msg_to_message).collect();
+
+        // ── Load previous session messages ────────────────
+        // If thread_id looks like a UUID and has a session file, load it
+        if uuid::Uuid::parse_str(&thread_id).is_ok() {
+            if let Ok(previous) = aa_session::storage::load(&thread_id) {
+                // Keep request messages (user's latest input) + prepend history
+                let user_msg = messages.clone();
+                messages = previous;
+                messages.extend(user_msg);
+            }
+        }
+
         let tools = registry.read().await.all_tools();
 
         let (session_tx, mut session_rx) = tokio::sync::mpsc::channel::<aa_session::SessionEvent>(64);
@@ -334,7 +346,7 @@ async fn chat_sse(
             session_id: thread_id.clone(),
         };
 
-        tokio::spawn(aa_session::run_turn(turn_input, session_tx));
+        let turn_handle = tokio::spawn(aa_session::run_turn(turn_input, session_tx));
 
         // --- Convert SessionEvent → AG-UI SSE ---
         let mut in_message = false;
@@ -435,6 +447,19 @@ async fn chat_sse(
                         )
                         .await;
                     }
+
+                    // ── Persist session ──────────────────────────
+                    if let Ok(result) = turn_handle.await {
+                        let model = &result.model;
+                        let provider = &result.provider.id();
+                        let _ = aa_session::storage::save(
+                            &thread_id,
+                            &result.messages,
+                            model,
+                            provider,
+                        );
+                    }
+
                     send_json(
                         &tx,
                         serde_json::json!({

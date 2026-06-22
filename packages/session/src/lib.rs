@@ -3,6 +3,8 @@ use std::sync::Arc;
 use aa_core::llm::*;
 use aa_kernel::tool_provider::{Tool, ToolExecutionContext};
 
+pub mod storage;
+
 // ── Events ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
