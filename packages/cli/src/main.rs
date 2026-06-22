@@ -128,7 +128,7 @@ fn main() {
         Some(Command::Session(ref session_args)) => {
             match &session_args.command {
                 SessionCommand::List => {
-                    match storage::list_sessions() {
+                    match aa_session::storage::list() {
                         Ok(sessions) => {
                             if sessions.is_empty() {
                                 println!("No saved sessions");
@@ -144,7 +144,7 @@ fn main() {
                     }
                 }
                 SessionCommand::Delete { session_id } => {
-                    storage::delete_session(session_id).ok();
+                    aa_session::storage::delete(session_id).ok();
                     println!("Deleted session {session_id}");
                 }
             }

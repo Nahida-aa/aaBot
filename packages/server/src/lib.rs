@@ -451,12 +451,11 @@ async fn chat_sse(
                     // ── Persist session ──────────────────────────
                     if let Ok(result) = turn_handle.await {
                         let model = &result.model;
-                        let provider = &result.provider.id();
                         let _ = aa_session::storage::save(
                             &thread_id,
                             &result.messages,
                             model,
-                            provider,
+                            &result.provider.id().0,
                         );
                     }
 

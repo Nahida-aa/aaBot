@@ -27,7 +27,6 @@ const syntaxStyle = SyntaxStyle.create();
 export const Session: Component<SessionProps> = (props) => {
   const renderer = useRenderer();
 
-  // Auto-copy on selection completion
   createEffect(() => {
     const handler = (selection: any) => {
       if (selection && !selection.isDragging) {
@@ -41,8 +40,11 @@ export const Session: Component<SessionProps> = (props) => {
   const [messages, setMessages] = createSignal<Msg[]>([]);
   const [input, setInput] = createSignal("");
   const [streaming, setStreaming] = createSignal(false);
+  const [status, setStatus] = createSignal<"connected" | "error">("connected");
+  const [statusText, setStatusText] = createSignal("");
 
-  const [tools] = createResource(() => props.client.listTools());
+  const [health] = createResource(() => props.client.health().catch(() => undefined));
+  const [tools] = createResource(() => props.client.listTools().catch<ToolDef[]>(() => []));
 
   const chatHistory = createMemo(() => {
     const msgs = messages();
@@ -69,6 +71,7 @@ export const Session: Component<SessionProps> = (props) => {
     ]);
     setInput("");
     setStreaming(true);
+    setStatusText("waiting for response...");
 
     const assistantId = crypto.randomUUID();
     setMessages((prev) => [
@@ -88,6 +91,7 @@ export const Session: Component<SessionProps> = (props) => {
           case "TEXT_MESSAGE_CONTENT":
             fullContent += event.delta;
             updateMsg(assistantId, { content: fullContent });
+            setStatusText("streaming...");
             break;
           case "TOOL_CALL_START":
             setMessages((prev) => [
@@ -101,6 +105,7 @@ export const Session: Component<SessionProps> = (props) => {
                 isStreaming: true,
               },
             ]);
+            setStatusText(`running tool: ${event.toolCallName}...`);
             break;
           case "TOOL_CALL_ARGS":
             setMessages((prev) =>
@@ -112,20 +117,32 @@ export const Session: Component<SessionProps> = (props) => {
             );
             break;
           case "TOOL_CALL_END":
-            updateMsg(event.toolCallId, {
-              content: JSON.stringify(event.result).slice(0, 500),
-              isStreaming: false,
-            });
+            {
+              const preview = typeof event.result === "string"
+                ? event.result.length > 200
+                  ? event.result.slice(0, 200) + "..."
+                  : event.result
+                : JSON.stringify(event.result).slice(0, 200);
+              updateMsg(event.toolCallId, {
+                content: preview,
+                isStreaming: false,
+              });
+            }
+            setStatusText("");
             break;
           case "RUN_ERROR":
             updateMsg(assistantId, {
               content: `Error: ${event.message}`,
               isStreaming: false,
             });
+            setStatus("error");
+            setStatusText(event.message);
             setStreaming(false);
             return;
           case "RUN_FINISHED":
             updateMsg(assistantId, { isStreaming: false });
+            setStatus("connected");
+            setStatusText("");
             setStreaming(false);
             break;
         }
@@ -135,6 +152,8 @@ export const Session: Component<SessionProps> = (props) => {
         content: `Error: ${err}`,
         isStreaming: false,
       });
+      setStatus("error");
+      setStatusText(String(err));
       setStreaming(false);
     }
   };
@@ -144,6 +163,11 @@ export const Session: Component<SessionProps> = (props) => {
       prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
     );
   }
+
+  const toolCount = createMemo(() => {
+    const t = tools();
+    return t ? t.length : 0;
+  });
 
   return (
     <box
@@ -157,36 +181,66 @@ export const Session: Component<SessionProps> = (props) => {
       {/* Header */}
       <box height={1} flexDirection="row">
         <text fg="cyan">aaBot</text>
-        <text> — AI Assistant</text>
+        <text fg="#666"> {toolCount()} tools</text>
         <box flexGrow={1} />
-        <text fg="#666">Esc: back</text>
+        {status() === "error" ? (
+          <text fg="red">● err</text>
+        ) : streaming() ? (
+          <text fg="yellow">● busy</text>
+        ) : (
+          <text fg="green">● {health() ? "ok" : "?"}</text>
+        )}
+        <text fg="#666"> Esc:back</text>
       </box>
 
       {/* Messages */}
       <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
-        <For each={messages()}>
-          {(msg) => (
-            <box flexDirection="column">
-              {msg.isTool ? (
-                <text fg="yellow">
-                  ↻ {msg.toolName}: {msg.content || "running..."}
-                </text>
-              ) : (
-                <>
-                  <text fg={msg.role === "user" ? "green" : "cyan"}>
-                    {msg.role === "user" ? "You" : "AI"}
-                  </text>
-                  {msg.content ? (
-                    <markdown content={msg.content} syntaxStyle={syntaxStyle} />
-                  ) : null}
-                  {msg.isStreaming && <text fg="#666">▊</text>}
-                </>
-              )}
-              <box height={1} />
-            </box>
-          )}
-        </For>
+        {messages().length === 0 ? (
+          <box flexDirection="column">
+            <box height={2} />
+            <text fg="#666">Start a conversation. Type a message below.</text>
+            <text fg="#666">I can read/write files, grep/search code,</text>
+            <text fg="#666">run shell commands, and fetch web pages.</text>
+            <box height={2} />
+          </box>
+        ) : (
+          <For each={messages()}>
+            {(msg) => (
+              <box flexDirection="column">
+                {msg.isTool ? (
+                  <box flexDirection="row">
+                    <text fg="yellow">↻ {msg.toolName}</text>
+                    <text fg="#888"> {msg.content || "running..."}</text>
+                  </box>
+                ) : (
+                  <>
+                    <text
+                      fg={msg.role === "user" ? "#4ade80" : "#22d3ee"}
+                    >
+                      {msg.role === "user" ? "You" : "AI"}
+                    </text>
+                    {msg.content ? (
+                      <markdown content={msg.content} syntaxStyle={syntaxStyle} />
+                    ) : null}
+                    {msg.isStreaming && !msg.content ? (
+                      <text fg="#666">▊</text>
+                    ) : null}
+                  </>
+                )}
+                <box height={1} />
+              </box>
+            )}
+          </For>
+        )}
       </scrollbox>
+
+      {/* Status bar */}
+      <box height={1} flexDirection="row">
+        {statusText() ? (
+          <text fg="#666">{statusText()}</text>
+        ) : null}
+        <box flexGrow={1} />
+      </box>
 
       {/* Input */}
       <box height={3} flexDirection="row">
