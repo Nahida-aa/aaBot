@@ -4,5 +4,4 @@ target/
 # Node
 node_modules/
 
-# 个人参考
-.agent/REFS.md
+.agents/*.local.md

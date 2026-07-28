@@ -598,7 +598,7 @@ async fn grep_recursive(
             Box::pin(grep_recursive(&path, re, include, results)).await?;
         } else if entry.file_type().await.map(|t| t.is_file()).unwrap_or(false) {
             let rel = path.to_string_lossy().to_string();
-            if let Some(ref g) = include {
+            if let Some(g) = include {
                 if !g.matches(&rel) && !g.matches(&path.file_name().unwrap_or_default().to_string_lossy()) { continue; }
             }
             if let Ok(content) = fs::read_to_string(&path).await {

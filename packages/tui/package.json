@@ -5,7 +5,8 @@
   "main": "src/index.tsx",
   "scripts": {
     "start": "bun --conditions=browser run src/index.tsx",
-    "dev": "bun --conditions=browser run src/index.tsx"
+    "dev": "bun --conditions=browser run src/index.tsx",
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@aa/sdk": "workspace:*",
@@ -17,6 +18,7 @@
     "solid-js": "1.9.12"
   },
   "devDependencies": {
+    "@typescript/native-preview": "latest",
     "typescript": "^6.0.3"
   }
 }

@@ -298,9 +298,10 @@ mod tests {
         let cfg = Config { model: None, provider: HashMap::new(), mcp: None };
         assert!(cfg.mcp_servers_json().is_none());
 
-        std::env::set_var("AA_MCP_SERVERS", r#"{"env-tool": {"command": "docker", "args": []}}"#);
+        // SAFETY: test-only code
+        unsafe { std::env::set_var("AA_MCP_SERVERS", r#"{"env-tool": {"command": "docker", "args": []}}"#) };
         let json = cfg.mcp_servers_json().unwrap();
         assert_eq!(json["env-tool"]["command"], "docker");
-        std::env::remove_var("AA_MCP_SERVERS");
+        unsafe { std::env::remove_var("AA_MCP_SERVERS") };
     }
 }

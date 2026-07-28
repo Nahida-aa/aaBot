@@ -55,6 +55,11 @@ export class AaClient {
     return res.json();
   }
 
+  async deleteSession(id: string): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}/sessions/${id}`, { method: "DELETE" });
+    return res.ok;
+  }
+
   async *chat(
     messages: ChatMessage[],
     tools: ToolDef[],

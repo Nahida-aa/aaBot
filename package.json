@@ -1,6 +1,19 @@
 {
   "name": "aa-bot-root",
+  "private": true,
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "scripts": {
+    "dev": "cd packages/tui && bun run dev",
+    "dev:tui": "cd packages/tui && bun run dev",
+    "dev:web": "cd packages/app && bun run dev",
+    "dev:desktop": "cd packages/app && bun run tauri dev",
+    "dev:server": "cargo run -p aa-server",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.61.0"
+  }
 }

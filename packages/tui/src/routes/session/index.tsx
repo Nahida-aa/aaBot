@@ -1,8 +1,10 @@
-import { type Component, createSignal, createMemo, createResource, For, createEffect, onCleanup } from "solid-js";
+import { type Component, createSignal, createMemo, createResource, For, createEffect, onCleanup, onMount } from "solid-js";
 import { SyntaxStyle, CliRenderEvents } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import type { AaClient, ChatMessage, ToolDef } from "@aa/sdk";
 import { copy } from "../../util/selection";
+import { Sidebar } from "../../component/sidebar";
+import { Prompt } from "../../component/prompt";
 
 interface SessionProps {
   client: AaClient;
@@ -12,6 +14,8 @@ interface SessionProps {
     error: (err: unknown) => void;
   };
   sessionID?: string;
+  model?: string;
+  provider?: string;
 }
 
 interface Msg {
@@ -27,6 +31,8 @@ const syntaxStyle = SyntaxStyle.create();
 
 export const Session: Component<SessionProps> = (props) => {
   const renderer = useRenderer();
+  const [model, setModel] = createSignal(props.model ?? "");
+  const [provider, setProvider] = createSignal(props.provider ?? "");
 
   createEffect(() => {
     const handler = (selection: any) => {
@@ -38,13 +44,19 @@ export const Session: Component<SessionProps> = (props) => {
     onCleanup(() => renderer.off(CliRenderEvents.SELECTION, handler));
   });
 
+  onMount(async () => {
+    try {
+      const h = await props.client.health();
+      if (!props.model) setModel(h.model);
+      if (!props.provider) setProvider(h.provider);
+    } catch {}
+  });
+
   const [messages, setMessages] = createSignal<Msg[]>([]);
-  const [input, setInput] = createSignal("");
   const [streaming, setStreaming] = createSignal(false);
   const [status, setStatus] = createSignal<"connected" | "error">("connected");
   const [statusText, setStatusText] = createSignal("");
 
-  const [health] = createResource(() => props.client.health().catch(() => undefined));
   const [tools] = createResource(() => props.client.listTools().catch<ToolDef[]>(() => []));
   const threadId = props.sessionID || crypto.randomUUID();
 
@@ -63,15 +75,13 @@ export const Session: Component<SessionProps> = (props) => {
     return history;
   });
 
-  const submit = async () => {
-    const text = input().trim();
-    if (!text || streaming()) return;
+  const submit = async (text: string) => {
+    if (!text.trim() || streaming()) return;
 
     setMessages((prev) => [
       ...prev,
       { id: crypto.randomUUID(), role: "user", content: text },
     ]);
-    setInput("");
     setStreaming(true);
     setStatusText("waiting for response...");
 
@@ -166,99 +176,106 @@ export const Session: Component<SessionProps> = (props) => {
     );
   }
 
-  const toolCount = createMemo(() => {
-    const t = tools();
-    return t ? t.length : 0;
-  });
-
   return (
     <box
       width="100%"
       height="100%"
-      flexDirection="column"
-      on:keypress={(e) => {
-        if (e.name === "escape") props.onBack();
-      }}
+      flexDirection="row"
     >
-      {/* Header */}
-      <box height={1} flexDirection="row">
-        <text fg="cyan">aaBot</text>
-        <text fg="#666"> {toolCount()} tools</text>
-        {threadId && threadId.length > 0 ? (
-          <text fg="#444"> #{threadId.slice(0, 8)}</text>
-        ) : null}
-        <box flexGrow={1} />
-        {status() === "error" ? (
-          <text fg="red">● err</text>
-        ) : streaming() ? (
-          <text fg="yellow">● busy</text>
-        ) : (
-          <text fg="green">● {health() ? "ok" : "?"}</text>
-        )}
-        <text fg="#666"> Esc:back</text>
-      </box>
+      {/* Sidebar */}
+      <Sidebar
+        client={props.client}
+        currentSessionId={threadId}
+        onNewSession={() => {
+          window.location.reload()
+        }}
+        onSelectSession={(id) => {
+          props.onBack()
+          // navigate to different session via route
+        }}
+        onBack={props.onBack}
+      />
 
-      {/* Messages */}
-      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
-        {messages().length === 0 ? (
-          <box flexDirection="column">
-            <box height={2} />
-            <text fg="#666">Start a conversation. Type a message below.</text>
-            <text fg="#666">I can read/write files, grep/search code,</text>
-            <text fg="#666">run shell commands, and fetch web pages.</text>
-            <box height={2} />
-          </box>
-        ) : (
-          <For each={messages()}>
-            {(msg) => (
-              <box flexDirection="column">
-                {msg.isTool ? (
-                  <box flexDirection="row">
-                    <text fg="yellow">↻ {msg.toolName}</text>
-                    <text fg="#888"> {msg.content || "running..."}</text>
-                  </box>
-                ) : (
-                  <>
-                    <text
-                      fg={msg.role === "user" ? "#4ade80" : "#22d3ee"}
-                    >
-                      {msg.role === "user" ? "You" : "AI"}
-                    </text>
-                    {msg.content ? (
-                      <markdown content={msg.content} syntaxStyle={syntaxStyle} />
-                    ) : null}
-                    {msg.isStreaming && !msg.content ? (
-                      <text fg="#666">▊</text>
-                    ) : null}
-                  </>
-                )}
-                <box height={1} />
-              </box>
-            )}
-          </For>
-        )}
-      </scrollbox>
+      {/* Main content */}
+      <box
+        flexGrow={1}
+        height="100%"
+        flexDirection="column"
+        on:keypress={(e) => {
+          if (e.name === "escape") props.onBack();
+        }}
+      >
+        {/* Header */}
+        <box height={1} flexDirection="row">
+          <text fg="#555">{threadId.slice(0, 8)}</text>
+          <box flexGrow={1} />
+          {status() === "error" ? (
+            <text fg="red">● err</text>
+          ) : streaming() ? (
+            <text fg="yellow">● busy</text>
+          ) : (
+            <text fg="green">● ok</text>
+          )}
+          <text fg="#666"> Esc:back</text>
+        </box>
 
-      {/* Status bar */}
-      <box height={1} flexDirection="row">
-        {statusText() ? (
-          <text fg="#666">{statusText()}</text>
-        ) : null}
-        <box flexGrow={1} />
-      </box>
+        {/* Messages */}
+        <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
+          {messages().length === 0 ? (
+            <box flexDirection="column">
+              <box height={2} />
+              <text fg="#666">Start a conversation. Type a message below.</text>
+              <text fg="#666">I can read/write files, grep/search code,</text>
+              <text fg="#666">run shell commands, and fetch web pages.</text>
+              <box height={2} />
+            </box>
+          ) : (
+            <For each={messages()}>
+              {(msg) => (
+                <box flexDirection="column">
+                  {msg.isTool ? (
+                    <box flexDirection="row">
+                      <text fg="yellow">↻ {msg.toolName}</text>
+                      <text fg="#888"> {msg.content || "running..."}</text>
+                    </box>
+                  ) : (
+                    <>
+                      <text
+                        fg={msg.role === "user" ? "#4ade80" : "#22d3ee"}
+                      >
+                        {msg.role === "user" ? "You" : "AI"}
+                      </text>
+                      {msg.content ? (
+                        <markdown content={msg.content} syntaxStyle={syntaxStyle} />
+                      ) : null}
+                      {msg.isStreaming && !msg.content ? (
+                        <text fg="#666">▊</text>
+                      ) : null}
+                    </>
+                  )}
+                  <box height={1} />
+                </box>
+              )}
+            </For>
+          )}
+        </scrollbox>
 
-      {/* Input */}
-      <box height={3} flexDirection="row">
-        <textarea
-          initialValue={input()}
-          placeholder="Type a message..."
-          placeholderColor="#666"
-          minHeight={1}
-          maxHeight={3}
-          flexGrow={1}
-          onContentChange={(v) => { if (typeof v === "string") setInput(v); }}
-          onSubmit={submit}
-        />
+        {/* Status bar */}
+        <box height={1} flexDirection="row">
+          {statusText() ? (
+            <text fg="#666">{statusText()}</text>
+          ) : null}
+          <box flexGrow={1} />
+        </box>
+
+        {/* Input */}
+        <box flexShrink={0}>
+          <Prompt
+            model={model()}
+            provider={provider()}
+            onSubmit={(value) => submit(value)}
+          />
+        </box>
       </box>
     </box>
   );

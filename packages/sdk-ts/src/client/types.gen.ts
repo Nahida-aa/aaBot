@@ -57,6 +57,7 @@ export type HealthResponse = {
     tool_count: number;
     provider: string;
     model: string;
+    mcp: number;
 };
 
 export type PartTextRange = {

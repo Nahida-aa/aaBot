@@ -26,6 +26,7 @@ type Registry = Arc<RwLock<aa_kernel::ToolRegistry>>;
 struct AppState {
     registry: Registry,
     resolved: aa_config::ResolvedConfig,
+    mcp_count: usize,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -41,6 +42,7 @@ struct HealthResponse {
     tool_count: usize,
     provider: String,
     model: String,
+    mcp: usize,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -571,6 +573,12 @@ async fn get_session(Path(id): Path<String>) -> Result<Json<SessionDetail>, (Sta
     }))
 }
 
+/// Delete a session by ID.
+async fn delete_session(Path(id): Path<String>) -> Result<Json<serde_json::Value>, StatusCode> {
+    let _ = aa_session::storage::delete(&id);
+    Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
 // ---------------------------------------------------------------------------
 // Legacy endpoints
 // ---------------------------------------------------------------------------
@@ -590,6 +598,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         tool_count: count,
         provider: state.resolved.provider.clone(),
         model: state.resolved.model.clone(),
+        mcp: state.mcp_count,
     })
 }
 
@@ -699,8 +708,8 @@ async fn openapi_json() -> Json<serde_json::Value> {
 // Public API
 // ---------------------------------------------------------------------------
 
-fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig) -> Router {
-    let state = AppState { registry, resolved };
+fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig, mcp_count: usize) -> Router {
+    let state = AppState { registry, resolved, mcp_count };
 
     Router::new()
         .route("/health", get(health))
@@ -708,7 +717,7 @@ fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig) -> Router 
         .route("/tools/{name}", post(call_tool))
         .route("/chat", post(chat_sse))
         .route("/sessions", get(list_sessions))
-        .route("/sessions/{id}", get(get_session))
+        .route("/sessions/{id}", get(get_session).delete(delete_session))
         .route("/openapi.json", get(openapi_json))
         .with_state(state)
 }
@@ -737,13 +746,14 @@ pub async fn serve(
     cli_base_url: Option<&str>,
 ) -> anyhow::Result<()> {
     let config = aa_config::Config::load();
+    let mcp_count = config.mcp_servers_json().and_then(|j| j.as_array().map(|a| a.len())).unwrap_or(0);
     let kernel = build_kernel(&config);
     let scope = aa_kernel::ToolProviderScope::new(".");
     let registry = Arc::new(RwLock::new(kernel.build_tool_registry(&scope)));
 
     let resolved = config.resolve(cli_provider, cli_model, cli_base_url);
 
-    let app = build_app(registry, resolved);
+    let app = build_app(registry, resolved, mcp_count);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await

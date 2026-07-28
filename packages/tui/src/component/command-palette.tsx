@@ -6,6 +6,8 @@ export type PaletteCommand =
   | { action: "session-list" }
   | { action: "new-session" }
   | { action: "back-home" }
+  | { action: "delete-session" }
+  | { action: "workspace" }
   | { action: "help" }
 
 interface CommandPaletteProps {
@@ -16,6 +18,8 @@ const COMMANDS: SelectOption<PaletteCommand>[] = [
   { title: "Change Model / Provider", description: "Switch LLM model or provider", value: { action: "config" }, category: "Settings" },
   { title: "Open Session", description: "Browse and resume past sessions", value: { action: "session-list" }, category: "Session" },
   { title: "New Session", description: "Start a fresh conversation", value: { action: "new-session" }, category: "Session" },
+  { title: "Delete Session", description: "Remove a saved session", value: { action: "delete-session" }, category: "Session" },
+  { title: "Switch Workspace", description: "Change the working directory", value: { action: "workspace" }, category: "Workspace" },
   { title: "Back to Home", description: "Return to the home screen", value: { action: "back-home" }, category: "Navigation" },
   { title: "Help", description: "Show keybindings and usage tips", value: { action: "help" }, category: "Help" },
 ]

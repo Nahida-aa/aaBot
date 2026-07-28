@@ -8,10 +8,12 @@ import { ToastProvider, useToast, Toast } from "./ui/toast";
 import { DialogProvider, useDialog, Dialog } from "./ui/dialog";
 import { ConfigDialog } from "./component/dialog/config";
 import { SessionListDialog } from "./component/dialog/session-list";
+import { WorkspaceListDialog } from "./component/dialog/workspace-list";
 import { CommandPalette, type PaletteCommand } from "./component/command-palette";
 import { Home } from "./routes/home";
 import { Session } from "./routes/session";
-import { ExitProvider, createExit, type Exit } from "./context/exit";
+import { ExitProvider, createExit, useExit, type Exit } from "./context/exit";
+import { WorkspaceProvider } from "./context/workspace";
 import { RouteProvider, useRoute } from "./context/route";
 import { ArgsProvider, type Args } from "./context/args";
 
@@ -49,7 +51,7 @@ type TuiInput = {
 export function tuiRendererConfig(): CliRendererConfig {
   return {
     backgroundColor: "#000000",
-    exitOnCtrlC: false,
+    exitOnCtrlC: true,
   }
 }
 
@@ -93,6 +95,7 @@ function createTuiLifecycle(input: {
   const cleanup = () => {
     cleanupTask ??= (async () => {
       process.off("SIGHUP", onSighup)
+      process.off("SIGINT", onSighup)
       try {
         await input.cleanup()
       } finally {
@@ -124,6 +127,7 @@ function createTuiLifecycle(input: {
     })
   })
   process.on("SIGHUP", onSighup)
+  process.on("SIGINT", onSighup)
 
   return {
     exit,
@@ -156,6 +160,7 @@ async function mountTui(input: TuiInput & { keymap: ReturnType<typeof createDefa
           <ExitProvider exit={input.exit}>
             <ToastProvider>
               <DialogProvider>
+                <WorkspaceProvider>
                 <RouteProvider
                   initialRoute={
                     input.args.continue
@@ -165,6 +170,7 @@ async function mountTui(input: TuiInput & { keymap: ReturnType<typeof createDefa
                 >
                   <App onSnapshot={input.onSnapshot} url={input.url} />
                 </RouteProvider>
+              </WorkspaceProvider>
               </DialogProvider>
             </ToastProvider>
           </ExitProvider>
@@ -183,6 +189,7 @@ export const App = (props: { onSnapshot?: () => Promise<string[]>; url?: string 
   const toast = useToast();
   const dialog = useDialog();
   const route = useRoute();
+  const exit = useExit();
   const client = new AaClient(props.url ?? "http://localhost:3000");
 
   const handlePaletteCommand = (cmd: PaletteCommand) => {
@@ -213,6 +220,20 @@ export const App = (props: { onSnapshot?: () => Promise<string[]>; url?: string 
             onSelect={(id) => route.navigate({ type: "session", sessionID: id })}
           />
         ))
+        break
+      case "delete-session":
+        dialog.push(() => (
+          <SessionListDialog
+            client={client}
+            onSelect={async (id) => {
+              const ok = await client.deleteSession(id)
+              toast.show({ message: ok ? "Session deleted" : "Delete failed", variant: ok ? "info" : "error" })
+            }}
+          />
+        ))
+        break
+      case "workspace":
+        dialog.push(() => <WorkspaceListDialog />)
         break
       case "back-home":
         route.navigate({ type: "home" })
@@ -250,6 +271,8 @@ export const App = (props: { onSnapshot?: () => Promise<string[]>; url?: string 
       on:keypress={(e: { name?: string; ctrl?: boolean }) => {
         if ((e.name === "k" || e.name === "K") && e.ctrl) {
           openPalette()
+        } else if (e.name === "c" && e.ctrl) {
+          void exit()
         }
       }}
     >
