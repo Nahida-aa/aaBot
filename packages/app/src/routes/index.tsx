@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { createSignal, createResource, For, Show, onMount } from 'solid-js'
-import { AaClient, type SseEvent, type ChatMessage } from '@aa/sdk'
+import { AaClient, type SseEvent, type ChatMsg } from '@aa/sdk'
 
 const client = new AaClient('/api')
 
@@ -21,7 +21,7 @@ function RouteComponent() {
   const [tools] = createResource(() => client.listTools().catch(() => []))
   const [sessions, { refetch }] = createResource(() => client.listSessions().catch(() => []))
 
-  const [messages, setMessages] = createSignal<ChatMessage[]>([])
+  const [messages, setMessages] = createSignal<ChatMsg[]>([])
   const [input, setInput] = createSignal("")
   const [streaming, setStreaming] = createSignal(false)
   const [status, setStatus] = createSignal("")
@@ -36,7 +36,7 @@ function RouteComponent() {
     setInput("")
     setStatus("streaming...")
 
-    const userMsg: ChatMessage = { role: "user", content: text }
+    const userMsg: ChatMsg = { role: "user", content: text }
     setMessages(prev => [...prev, userMsg])
 
     const history = messages()

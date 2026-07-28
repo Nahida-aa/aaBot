@@ -112,6 +112,92 @@ struct AGUIChatRequest {
 }
 
 // ---------------------------------------------------------------------------
+// AG-UI SSE event types
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct RunStartedEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    thread_id: String,
+    run_id: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct TextMessageStartEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    message_id: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct TextMessageContentEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    message_id: String,
+    delta: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct TextMessageEndEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    message_id: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ToolCallStartEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    tool_call_id: String,
+    tool_call_name: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ToolCallArgsEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    tool_call_id: String,
+    delta: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ToolCallEndEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    tool_call_id: String,
+    input: serde_json::Value,
+    result: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct RunFinishedEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    thread_id: String,
+    run_id: String,
+    finish_reason: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct RunErrorEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    thread_id: String,
+    run_id: String,
+    message: String,
+}
+
+// ---------------------------------------------------------------------------
 // Message Part types (for TUI PromptInfo)
 // ---------------------------------------------------------------------------
 
@@ -238,8 +324,8 @@ fn chat_msg_to_message(msg: &ChatMsg) -> Message {
     }
 }
 
-async fn send_json(tx: &tokio::sync::mpsc::Sender<String>, value: serde_json::Value) {
-    if let Ok(json) = serde_json::to_string(&value) {
+async fn send_json(tx: &tokio::sync::mpsc::Sender<String>, value: &impl Serialize) {
+    if let Ok(json) = serde_json::to_string(value) {
         let _ = tx.send(json).await;
     }
 }
@@ -285,12 +371,12 @@ async fn chat_sse(
         if resolved.provider != "ollama" && resolved.api_key.is_empty() {
             send_json(
                 &tx,
-                serde_json::json!({
-                    "type": "RUN_ERROR",
-                    "threadId": thread_id,
-                    "runId": run_id,
-                    "message": "AA_LLM_API_KEY not set",
-                }),
+                &RunErrorEvent {
+                    event_type: "RUN_ERROR".into(),
+                    thread_id: thread_id.clone(),
+                    run_id: run_id.clone(),
+                    message: "AA_LLM_API_KEY not set".into(),
+                },
             )
             .await;
             return;
@@ -332,11 +418,11 @@ async fn chat_sse(
         // --- RUN_STARTED ---
         send_json(
             &tx,
-            serde_json::json!({
-                "type": "RUN_STARTED",
-                "threadId": thread_id,
-                "runId": run_id,
-            }),
+            &RunStartedEvent {
+                event_type: "RUN_STARTED".into(),
+                thread_id: thread_id.clone(),
+                run_id: run_id.clone(),
+            },
         )
         .await;
 
@@ -364,21 +450,21 @@ async fn chat_sse(
                         msg_counter += 1;
                         send_json(
                             &tx,
-                            serde_json::json!({
-                                "type": "TEXT_MESSAGE_START",
-                                "messageId": format!("msg_{msg_counter}"),
-                            }),
+                            &TextMessageStartEvent {
+                                event_type: "TEXT_MESSAGE_START".into(),
+                                message_id: format!("msg_{msg_counter}"),
+                            },
                         )
                         .await;
                         in_message = true;
                     }
                     send_json(
                         &tx,
-                        serde_json::json!({
-                            "type": "TEXT_MESSAGE_CONTENT",
-                            "delta": text,
-                            "messageId": format!("msg_{msg_counter}"),
-                        }),
+                        &TextMessageContentEvent {
+                            event_type: "TEXT_MESSAGE_CONTENT".into(),
+                            message_id: format!("msg_{msg_counter}"),
+                            delta: text,
+                        },
                     )
                     .await;
                 }
@@ -387,10 +473,10 @@ async fn chat_sse(
                     if in_message {
                         send_json(
                             &tx,
-                            serde_json::json!({
-                                "type": "TEXT_MESSAGE_END",
-                                "messageId": format!("msg_{msg_counter}"),
-                            }),
+                            &TextMessageEndEvent {
+                                event_type: "TEXT_MESSAGE_END".into(),
+                                message_id: format!("msg_{msg_counter}"),
+                            },
                         )
                         .await;
                         in_message = false;
@@ -401,21 +487,21 @@ async fn chat_sse(
 
                     send_json(
                         &tx,
-                        serde_json::json!({
-                            "type": "TOOL_CALL_START",
-                            "toolCallId": tc.id,
-                            "toolCallName": tc.function.name,
-                        }),
+                        &ToolCallStartEvent {
+                            event_type: "TOOL_CALL_START".into(),
+                            tool_call_id: tc.id.clone(),
+                            tool_call_name: tc.function.name.clone(),
+                        },
                     )
                     .await;
 
                     send_json(
                         &tx,
-                        serde_json::json!({
-                            "type": "TOOL_CALL_ARGS",
-                            "toolCallId": tc.id,
-                            "delta": tc.function.arguments,
-                        }),
+                        &ToolCallArgsEvent {
+                            event_type: "TOOL_CALL_ARGS".into(),
+                            tool_call_id: tc.id,
+                            delta: tc.function.arguments,
+                        },
                     )
                     .await;
                 }
@@ -430,12 +516,12 @@ async fn chat_sse(
 
                         send_json(
                             &tx,
-                            serde_json::json!({
-                                "type": "TOOL_CALL_END",
-                                "toolCallId": tc.id,
-                                "input": parsed_args,
-                                "result": content,
-                            }),
+                            &ToolCallEndEvent {
+                                event_type: "TOOL_CALL_END".into(),
+                                tool_call_id: tc.id,
+                                input: parsed_args,
+                                result: content,
+                            },
                         )
                         .await;
                     }
@@ -444,10 +530,10 @@ async fn chat_sse(
                     if in_message {
                         send_json(
                             &tx,
-                            serde_json::json!({
-                                "type": "TEXT_MESSAGE_END",
-                                "messageId": format!("msg_{msg_counter}"),
-                            }),
+                            &TextMessageEndEvent {
+                                event_type: "TEXT_MESSAGE_END".into(),
+                                message_id: format!("msg_{msg_counter}"),
+                            },
                         )
                         .await;
                     }
@@ -465,12 +551,12 @@ async fn chat_sse(
 
                     send_json(
                         &tx,
-                        serde_json::json!({
-                            "type": "RUN_FINISHED",
-                            "threadId": thread_id,
-                            "runId": run_id,
-                            "finishReason": "stop",
-                        }),
+                        &RunFinishedEvent {
+                            event_type: "RUN_FINISHED".into(),
+                            thread_id,
+                            run_id,
+                            finish_reason: "stop".into(),
+                        },
                     )
                     .await;
                     break;
@@ -479,21 +565,21 @@ async fn chat_sse(
                     if in_message {
                         send_json(
                             &tx,
-                            serde_json::json!({
-                                "type": "TEXT_MESSAGE_END",
-                                "messageId": format!("msg_{msg_counter}"),
-                            }),
+                            &TextMessageEndEvent {
+                                event_type: "TEXT_MESSAGE_END".into(),
+                                message_id: format!("msg_{msg_counter}"),
+                            },
                         )
                         .await;
                     }
                     send_json(
                         &tx,
-                        serde_json::json!({
-                            "type": "RUN_ERROR",
-                            "threadId": thread_id,
-                            "runId": run_id,
-                            "message": msg,
-                        }),
+                        &RunErrorEvent {
+                            event_type: "RUN_ERROR".into(),
+                            thread_id,
+                            run_id,
+                            message: msg,
+                        },
                     )
                     .await;
                     break;
@@ -685,6 +771,15 @@ async fn call_tool(
         ToolDef,
         ToolCallWire,
         ToolCallFuncWire,
+        RunStartedEvent,
+        TextMessageStartEvent,
+        TextMessageContentEvent,
+        TextMessageEndEvent,
+        ToolCallStartEvent,
+        ToolCallArgsEvent,
+        ToolCallEndEvent,
+        RunFinishedEvent,
+        RunErrorEvent,
         TextPart,
         FilePart,
         FilePartSource,

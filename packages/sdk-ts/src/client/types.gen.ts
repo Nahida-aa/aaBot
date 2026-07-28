@@ -71,6 +71,26 @@ export type PartTime = {
     start: number;
 };
 
+export type RunErrorEvent = {
+    message: string;
+    runId: string;
+    threadId: string;
+    type: string;
+};
+
+export type RunFinishedEvent = {
+    finishReason: string;
+    runId: string;
+    threadId: string;
+    type: string;
+};
+
+export type RunStartedEvent = {
+    runId: string;
+    threadId: string;
+    type: string;
+};
+
 export type SessionSummary = {
     created_at: string;
     message_count: number;
@@ -78,6 +98,22 @@ export type SessionSummary = {
     provider: string;
     session_id: string;
     updated_at: string;
+};
+
+export type TextMessageContentEvent = {
+    delta: string;
+    messageId: string;
+    type: string;
+};
+
+export type TextMessageEndEvent = {
+    messageId: string;
+    type: string;
+};
+
+export type TextMessageStartEvent = {
+    messageId: string;
+    type: string;
 };
 
 export type TextPart = {
@@ -92,6 +128,19 @@ export type TextPart = {
     type: string;
 };
 
+export type ToolCallArgsEvent = {
+    delta: string;
+    toolCallId: string;
+    type: string;
+};
+
+export type ToolCallEndEvent = {
+    input: unknown;
+    result: string;
+    toolCallId: string;
+    type: string;
+};
+
 export type ToolCallFuncWire = {
     arguments: string;
     name: string;
@@ -99,6 +148,12 @@ export type ToolCallFuncWire = {
 
 export type ToolCallRequest = {
     arguments: unknown;
+};
+
+export type ToolCallStartEvent = {
+    toolCallId: string;
+    toolCallName: string;
+    type: string;
 };
 
 export type ToolCallWire = {

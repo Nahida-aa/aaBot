@@ -1,7 +1,7 @@
 import { type Component, createSignal, createMemo, createResource, For, createEffect, onCleanup, onMount } from "solid-js";
 import { SyntaxStyle, CliRenderEvents } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
-import type { AaClient, ChatMessage, ToolDef } from "@aa/sdk";
+import type { AaClient, ChatMsg, ToolDef } from "@aa/sdk";
 import { copy } from "../../util/selection";
 import { Sidebar } from "../../component/sidebar";
 import { Prompt } from "../../component/prompt";
@@ -62,7 +62,7 @@ export const Session: Component<SessionProps> = (props) => {
 
   const chatHistory = createMemo(() => {
     const msgs = messages();
-    const history: ChatMessage[] = [];
+    const history: ChatMsg[] = [];
     for (const m of msgs) {
       if (m.isStreaming || m.isTool) continue;
       const content = m.content || "";

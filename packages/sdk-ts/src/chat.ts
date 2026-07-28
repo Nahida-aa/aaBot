@@ -1,25 +1,31 @@
-import type { HealthResponse, ToolDef, SessionSummary } from "./client";
+import type {
+  HealthResponse,
+  ToolDef,
+  SessionSummary,
+  ChatMsg,
+  RunStartedEvent,
+  TextMessageStartEvent,
+  TextMessageContentEvent,
+  TextMessageEndEvent,
+  ToolCallStartEvent,
+  ToolCallArgsEvent,
+  ToolCallEndEvent,
+  RunFinishedEvent,
+  RunErrorEvent,
+} from "./client";
 
-export type { HealthResponse, ToolDef, SessionSummary };
+export type { HealthResponse, ToolDef, SessionSummary, ChatMsg };
 
 export type SseEvent =
-  | { type: "RUN_STARTED"; threadId: string; runId: string }
-  | { type: "RUN_FINISHED"; threadId: string; runId: string; finishReason: string }
-  | { type: "RUN_ERROR"; threadId: string; runId: string; message: string }
-  | { type: "TEXT_MESSAGE_START"; messageId: string }
-  | { type: "TEXT_MESSAGE_CONTENT"; messageId: string; delta: string }
-  | { type: "TEXT_MESSAGE_END"; messageId: string }
-  | { type: "TOOL_CALL_START"; toolCallId: string; toolCallName: string }
-  | { type: "TOOL_CALL_ARGS"; toolCallId: string; delta: string }
-  | { type: "TOOL_CALL_END"; toolCallId: string; input: unknown; result: string };
-
-export interface ChatMessage {
-  role: string;
-  content?: string;
-  tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
-  tool_call_id?: string;
-  name?: string;
-}
+  | (RunStartedEvent & { type: "RUN_STARTED" })
+  | (TextMessageStartEvent & { type: "TEXT_MESSAGE_START" })
+  | (TextMessageContentEvent & { type: "TEXT_MESSAGE_CONTENT" })
+  | (TextMessageEndEvent & { type: "TEXT_MESSAGE_END" })
+  | (ToolCallStartEvent & { type: "TOOL_CALL_START" })
+  | (ToolCallArgsEvent & { type: "TOOL_CALL_ARGS" })
+  | (ToolCallEndEvent & { type: "TOOL_CALL_END" })
+  | (RunFinishedEvent & { type: "RUN_FINISHED" })
+  | (RunErrorEvent & { type: "RUN_ERROR" });
 
 export class AaClient {
   baseUrl: string;
@@ -50,7 +56,7 @@ export class AaClient {
   }
 
   async *chat(
-    messages: ChatMessage[],
+    messages: ChatMsg[],
     tools: ToolDef[],
     threadId?: string,
   ): AsyncGenerator<SseEvent> {
