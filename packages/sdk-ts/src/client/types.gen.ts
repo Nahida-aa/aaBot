@@ -8,7 +8,7 @@ export type AguiChatRequest = {
     messages: Array<ChatMsg>;
     run_id?: string | null;
     thread_id?: string | null;
-    tools: Array<ToolDef>;
+    tools?: Array<ToolDef>;
 };
 
 export type AgentPart = {
@@ -53,11 +53,11 @@ export type FilePartSource = {
 };
 
 export type HealthResponse = {
+    mcp: number;
+    model: string;
+    provider: string;
     status: string;
     tool_count: number;
-    provider: string;
-    model: string;
-    mcp: number;
 };
 
 export type PartTextRange = {
@@ -69,6 +69,15 @@ export type PartTextRange = {
 export type PartTime = {
     end?: number | null;
     start: number;
+};
+
+export type SessionSummary = {
+    created_at: string;
+    message_count: number;
+    model: string;
+    provider: string;
+    session_id: string;
+    updated_at: string;
 };
 
 export type TextPart = {
@@ -131,6 +140,22 @@ export type HealthResponses = {
 };
 
 export type HealthResponse2 = HealthResponses[keyof HealthResponses];
+
+export type ListSessionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/sessions';
+};
+
+export type ListSessionsResponses = {
+    /**
+     * List saved sessions
+     */
+    200: Array<SessionSummary>;
+};
+
+export type ListSessionsResponse = ListSessionsResponses[keyof ListSessionsResponses];
 
 export type ListToolsData = {
     body?: never;

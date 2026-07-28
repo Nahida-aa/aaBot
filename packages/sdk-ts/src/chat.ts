@@ -1,25 +1,6 @@
-import type { HealthResponse, ToolDef } from "./client";
+import type { HealthResponse, ToolDef, SessionSummary } from "./client";
 
-export interface ChatMessage {
-  role: string;
-  content?: string;
-  tool_calls?: Array<{
-    id: string;
-    type: string;
-    function: { name: string; arguments: string };
-  }>;
-  tool_call_id?: string;
-  name?: string;
-}
-
-export interface SessionSummary {
-  session_id: string;
-  model: string;
-  provider: string;
-  message_count: number;
-  updated_at: string;
-  created_at: string;
-}
+export type { HealthResponse, ToolDef, SessionSummary };
 
 export type SseEvent =
   | { type: "RUN_STARTED"; threadId: string; runId: string }
@@ -31,6 +12,14 @@ export type SseEvent =
   | { type: "TOOL_CALL_START"; toolCallId: string; toolCallName: string }
   | { type: "TOOL_CALL_ARGS"; toolCallId: string; delta: string }
   | { type: "TOOL_CALL_END"; toolCallId: string; input: unknown; result: string };
+
+export interface ChatMessage {
+  role: string;
+  content?: string;
+  tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
+  tool_call_id?: string;
+  name?: string;
+}
 
 export class AaClient {
   baseUrl: string;
