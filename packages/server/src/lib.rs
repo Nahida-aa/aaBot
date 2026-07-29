@@ -116,85 +116,54 @@ struct AGUIChatRequest {
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct RunStartedEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    thread_id: String,
-    run_id: String,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct TextMessageStartEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    message_id: String,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct TextMessageContentEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    message_id: String,
-    delta: String,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct TextMessageEndEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    message_id: String,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct ToolCallStartEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    tool_call_id: String,
-    tool_call_name: String,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct ToolCallArgsEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    tool_call_id: String,
-    delta: String,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct ToolCallEndEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    tool_call_id: String,
-    input: serde_json::Value,
-    result: String,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct RunFinishedEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    thread_id: String,
-    run_id: String,
-    finish_reason: String,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-struct RunErrorEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    thread_id: String,
-    run_id: String,
-    message: String,
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+enum SseEvent {
+    #[serde(rename_all = "camelCase")]
+    RunStarted {
+        thread_id: String,
+        run_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    TextMessageStart {
+        message_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    TextMessageContent {
+        message_id: String,
+        delta: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    TextMessageEnd {
+        message_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    ToolCallStart {
+        tool_call_id: String,
+        tool_call_name: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    ToolCallArgs {
+        tool_call_id: String,
+        delta: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    ToolCallEnd {
+        tool_call_id: String,
+        input: serde_json::Value,
+        result: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    RunFinished {
+        thread_id: String,
+        run_id: String,
+        finish_reason: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    RunError {
+        thread_id: String,
+        run_id: String,
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -371,8 +340,7 @@ async fn chat_sse(
         if resolved.provider != "ollama" && resolved.api_key.is_empty() {
             send_json(
                 &tx,
-                &RunErrorEvent {
-                    event_type: "RUN_ERROR".into(),
+                &SseEvent::RunError {
                     thread_id: thread_id.clone(),
                     run_id: run_id.clone(),
                     message: "AA_LLM_API_KEY not set".into(),
@@ -418,8 +386,7 @@ async fn chat_sse(
         // --- RUN_STARTED ---
         send_json(
             &tx,
-            &RunStartedEvent {
-                event_type: "RUN_STARTED".into(),
+            &SseEvent::RunStarted {
                 thread_id: thread_id.clone(),
                 run_id: run_id.clone(),
             },
@@ -450,8 +417,7 @@ async fn chat_sse(
                         msg_counter += 1;
                         send_json(
                             &tx,
-                            &TextMessageStartEvent {
-                                event_type: "TEXT_MESSAGE_START".into(),
+                            &SseEvent::TextMessageStart {
                                 message_id: format!("msg_{msg_counter}"),
                             },
                         )
@@ -460,8 +426,7 @@ async fn chat_sse(
                     }
                     send_json(
                         &tx,
-                        &TextMessageContentEvent {
-                            event_type: "TEXT_MESSAGE_CONTENT".into(),
+                        &SseEvent::TextMessageContent {
                             message_id: format!("msg_{msg_counter}"),
                             delta: text,
                         },
@@ -473,8 +438,7 @@ async fn chat_sse(
                     if in_message {
                         send_json(
                             &tx,
-                            &TextMessageEndEvent {
-                                event_type: "TEXT_MESSAGE_END".into(),
+                            &SseEvent::TextMessageEnd {
                                 message_id: format!("msg_{msg_counter}"),
                             },
                         )
@@ -487,8 +451,7 @@ async fn chat_sse(
 
                     send_json(
                         &tx,
-                        &ToolCallStartEvent {
-                            event_type: "TOOL_CALL_START".into(),
+                        &SseEvent::ToolCallStart {
                             tool_call_id: tc.id.clone(),
                             tool_call_name: tc.function.name.clone(),
                         },
@@ -497,8 +460,7 @@ async fn chat_sse(
 
                     send_json(
                         &tx,
-                        &ToolCallArgsEvent {
-                            event_type: "TOOL_CALL_ARGS".into(),
+                        &SseEvent::ToolCallArgs {
                             tool_call_id: tc.id,
                             delta: tc.function.arguments,
                         },
@@ -516,8 +478,7 @@ async fn chat_sse(
 
                         send_json(
                             &tx,
-                            &ToolCallEndEvent {
-                                event_type: "TOOL_CALL_END".into(),
+                            &SseEvent::ToolCallEnd {
                                 tool_call_id: tc.id,
                                 input: parsed_args,
                                 result: content,
@@ -530,8 +491,7 @@ async fn chat_sse(
                     if in_message {
                         send_json(
                             &tx,
-                            &TextMessageEndEvent {
-                                event_type: "TEXT_MESSAGE_END".into(),
+                            &SseEvent::TextMessageEnd {
                                 message_id: format!("msg_{msg_counter}"),
                             },
                         )
@@ -551,8 +511,7 @@ async fn chat_sse(
 
                     send_json(
                         &tx,
-                        &RunFinishedEvent {
-                            event_type: "RUN_FINISHED".into(),
+                        &SseEvent::RunFinished {
                             thread_id,
                             run_id,
                             finish_reason: "stop".into(),
@@ -565,8 +524,7 @@ async fn chat_sse(
                     if in_message {
                         send_json(
                             &tx,
-                            &TextMessageEndEvent {
-                                event_type: "TEXT_MESSAGE_END".into(),
+                            &SseEvent::TextMessageEnd {
                                 message_id: format!("msg_{msg_counter}"),
                             },
                         )
@@ -574,8 +532,7 @@ async fn chat_sse(
                     }
                     send_json(
                         &tx,
-                        &RunErrorEvent {
-                            event_type: "RUN_ERROR".into(),
+                        &SseEvent::RunError {
                             thread_id,
                             run_id,
                             message: msg,
@@ -771,15 +728,7 @@ async fn call_tool(
         ToolDef,
         ToolCallWire,
         ToolCallFuncWire,
-        RunStartedEvent,
-        TextMessageStartEvent,
-        TextMessageContentEvent,
-        TextMessageEndEvent,
-        ToolCallStartEvent,
-        ToolCallArgsEvent,
-        ToolCallEndEvent,
-        RunFinishedEvent,
-        RunErrorEvent,
+        SseEvent,
         TextPart,
         FilePart,
         FilePartSource,

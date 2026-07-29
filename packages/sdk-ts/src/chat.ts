@@ -1,31 +1,6 @@
-import type {
-  HealthResponse,
-  ToolDef,
-  SessionSummary,
-  ChatMsg,
-  RunStartedEvent,
-  TextMessageStartEvent,
-  TextMessageContentEvent,
-  TextMessageEndEvent,
-  ToolCallStartEvent,
-  ToolCallArgsEvent,
-  ToolCallEndEvent,
-  RunFinishedEvent,
-  RunErrorEvent,
-} from "./client";
+import type { HealthResponse, ToolDef, SessionSummary, ChatMsg, SseEvent } from "./client";
 
-export type { HealthResponse, ToolDef, SessionSummary, ChatMsg };
-
-export type SseEvent =
-  | (RunStartedEvent & { type: "RUN_STARTED" })
-  | (TextMessageStartEvent & { type: "TEXT_MESSAGE_START" })
-  | (TextMessageContentEvent & { type: "TEXT_MESSAGE_CONTENT" })
-  | (TextMessageEndEvent & { type: "TEXT_MESSAGE_END" })
-  | (ToolCallStartEvent & { type: "TOOL_CALL_START" })
-  | (ToolCallArgsEvent & { type: "TOOL_CALL_ARGS" })
-  | (ToolCallEndEvent & { type: "TOOL_CALL_END" })
-  | (RunFinishedEvent & { type: "RUN_FINISHED" })
-  | (RunErrorEvent & { type: "RUN_ERROR" });
+export type { HealthResponse, ToolDef, SessionSummary, ChatMsg, SseEvent };
 
 export class AaClient {
   baseUrl: string;

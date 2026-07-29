@@ -71,26 +71,6 @@ export type PartTime = {
     start: number;
 };
 
-export type RunErrorEvent = {
-    message: string;
-    runId: string;
-    threadId: string;
-    type: string;
-};
-
-export type RunFinishedEvent = {
-    finishReason: string;
-    runId: string;
-    threadId: string;
-    type: string;
-};
-
-export type RunStartedEvent = {
-    runId: string;
-    threadId: string;
-    type: string;
-};
-
 export type SessionSummary = {
     created_at: string;
     message_count: number;
@@ -100,20 +80,43 @@ export type SessionSummary = {
     updated_at: string;
 };
 
-export type TextMessageContentEvent = {
+export type SseEvent = {
+    runId: string;
+    threadId: string;
+    type: 'RUN_STARTED';
+} | {
+    messageId: string;
+    type: 'TEXT_MESSAGE_START';
+} | {
     delta: string;
     messageId: string;
-    type: string;
-};
-
-export type TextMessageEndEvent = {
+    type: 'TEXT_MESSAGE_CONTENT';
+} | {
     messageId: string;
-    type: string;
-};
-
-export type TextMessageStartEvent = {
-    messageId: string;
-    type: string;
+    type: 'TEXT_MESSAGE_END';
+} | {
+    toolCallId: string;
+    toolCallName: string;
+    type: 'TOOL_CALL_START';
+} | {
+    delta: string;
+    toolCallId: string;
+    type: 'TOOL_CALL_ARGS';
+} | {
+    input: unknown;
+    result: string;
+    toolCallId: string;
+    type: 'TOOL_CALL_END';
+} | {
+    finishReason: string;
+    runId: string;
+    threadId: string;
+    type: 'RUN_FINISHED';
+} | {
+    message: string;
+    runId: string;
+    threadId: string;
+    type: 'RUN_ERROR';
 };
 
 export type TextPart = {
@@ -128,19 +131,6 @@ export type TextPart = {
     type: string;
 };
 
-export type ToolCallArgsEvent = {
-    delta: string;
-    toolCallId: string;
-    type: string;
-};
-
-export type ToolCallEndEvent = {
-    input: unknown;
-    result: string;
-    toolCallId: string;
-    type: string;
-};
-
 export type ToolCallFuncWire = {
     arguments: string;
     name: string;
@@ -148,12 +138,6 @@ export type ToolCallFuncWire = {
 
 export type ToolCallRequest = {
     arguments: unknown;
-};
-
-export type ToolCallStartEvent = {
-    toolCallId: string;
-    toolCallName: string;
-    type: string;
 };
 
 export type ToolCallWire = {

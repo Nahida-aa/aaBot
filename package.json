@@ -12,9 +12,10 @@
     "dev:server": "cargo run -p aa-server",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "prepare": "lefthook install"
+    "prepare": "bunx lefthook install"
   },
   "devDependencies": {
-    "oxfmt": "^0.61.0"
+    "oxfmt": "^0.61.0",
+    "typescript": "^7.0.2"
   }
 }
