@@ -1,28 +1,36 @@
 import type { HealthResponse, ToolDef, SessionSummary, ChatMsg, SseEvent } from "./client";
+import { createClient } from "./client/client";
+import type { Client } from "./client/client";
+import {
+  health as genHealth,
+  listSessions as genListSessions,
+  listTools as genListTools,
+} from "./client/sdk.gen";
 
 export type { HealthResponse, ToolDef, SessionSummary, ChatMsg, SseEvent };
 
 export class AaClient {
-  baseUrl: string;
+  private sdk: Client;
+  readonly baseUrl: string;
 
   constructor(baseUrl = "http://localhost:3000") {
     this.baseUrl = baseUrl;
+    this.sdk = createClient({ baseUrl, throwOnError: true });
   }
 
   async health(): Promise<HealthResponse> {
-    const res = await fetch(`${this.baseUrl}/health`);
-    return res.json();
+    const { data } = await genHealth({ client: this.sdk as any });
+    return data!;
   }
 
   async listTools(): Promise<ToolDef[]> {
-    const res = await fetch(`${this.baseUrl}/tools`);
-    return res.json();
+    const { data } = await genListTools({ client: this.sdk as any });
+    return data!;
   }
 
   async listSessions(): Promise<SessionSummary[]> {
-    const res = await fetch(`${this.baseUrl}/sessions`);
-    if (!res.ok) return [];
-    return res.json();
+    const { data } = await genListSessions({ client: this.sdk as any });
+    return data ?? [];
   }
 
   async deleteSession(id: string): Promise<boolean> {
@@ -30,11 +38,7 @@ export class AaClient {
     return res.ok;
   }
 
-  async *chat(
-    messages: ChatMsg[],
-    tools: ToolDef[],
-    threadId?: string,
-  ): AsyncGenerator<SseEvent> {
+  async *chat(messages: ChatMsg[], tools: ToolDef[], threadId?: string): AsyncGenerator<SseEvent> {
     const res = await fetch(`${this.baseUrl}/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
