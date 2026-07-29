@@ -3,17 +3,14 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use aa_core::llm::{
-    Message, ModelProvider, Role, ToolCall,
-    ToolCallFunction,
-};
+use aa_core::llm::{Message, ModelProvider, Role, ToolCall, ToolCallFunction};
 use axum::{
+    Router,
     body::Body,
     extract::{Path, State},
-    http::{header, Response, StatusCode},
+    http::{Response, StatusCode, header},
     response::Json,
     routing::{get, post},
-    Router,
 };
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
@@ -119,33 +116,20 @@ struct AGUIChatRequest {
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 enum SseEvent {
     #[serde(rename_all = "camelCase")]
-    RunStarted {
-        thread_id: String,
-        run_id: String,
-    },
+    RunStarted { thread_id: String, run_id: String },
     #[serde(rename_all = "camelCase")]
-    TextMessageStart {
-        message_id: String,
-    },
+    TextMessageStart { message_id: String },
     #[serde(rename_all = "camelCase")]
-    TextMessageContent {
-        message_id: String,
-        delta: String,
-    },
+    TextMessageContent { message_id: String, delta: String },
     #[serde(rename_all = "camelCase")]
-    TextMessageEnd {
-        message_id: String,
-    },
+    TextMessageEnd { message_id: String },
     #[serde(rename_all = "camelCase")]
     ToolCallStart {
         tool_call_id: String,
         tool_call_name: String,
     },
     #[serde(rename_all = "camelCase")]
-    ToolCallArgs {
-        tool_call_id: String,
-        delta: String,
-    },
+    ToolCallArgs { tool_call_id: String, delta: String },
     #[serde(rename_all = "camelCase")]
     ToolCallEnd {
         tool_call_id: String,
@@ -357,13 +341,13 @@ async fn chat_sse(
                     default_model: resolved.model.clone(),
                 }))
             }
-            _ => {
-                std::sync::Arc::new(aa_llm::OpenAiCompatibleProvider::new(aa_llm::OpenAiConfig {
+            _ => std::sync::Arc::new(aa_llm::OpenAiCompatibleProvider::new(
+                aa_llm::OpenAiConfig {
                     base_url: resolved.base_url.clone(),
                     api_key: resolved.api_key.clone(),
                     default_model: resolved.model.clone(),
-                }))
-            }
+                },
+            )),
         };
 
         let mut messages: Vec<Message> = req.messages.iter().map(chat_msg_to_message).collect();
@@ -381,7 +365,8 @@ async fn chat_sse(
 
         let tools = registry.read().await.all_tools();
 
-        let (session_tx, mut session_rx) = tokio::sync::mpsc::channel::<aa_session::SessionEvent>(64);
+        let (session_tx, mut session_rx) =
+            tokio::sync::mpsc::channel::<aa_session::SessionEvent>(64);
 
         // --- RUN_STARTED ---
         send_json(
@@ -604,8 +589,12 @@ async fn list_sessions() -> Json<Vec<SessionSummary>> {
 
 /// Get full session detail including messages.
 async fn get_session(Path(id): Path<String>) -> Result<Json<SessionDetail>, (StatusCode, String)> {
-    let file = aa_session::storage::load_file(&id)
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("Session '{id}' not found: {e}")))?;
+    let file = aa_session::storage::load_file(&id).map_err(|e| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Session '{id}' not found: {e}"),
+        )
+    })?;
     Ok(Json(SessionDetail {
         session_id: file.session_id,
         model: file.model,
@@ -617,6 +606,15 @@ async fn get_session(Path(id): Path<String>) -> Result<Json<SessionDetail>, (Sta
 }
 
 /// Delete a session by ID.
+#[utoipa::path(
+    delete,
+    path = "/sessions/{id}",
+    responses(
+        (status = 200, description = "Session deleted"),
+        (status = 404, description = "Session not found")
+    ),
+    tag = "aaBot"
+)]
 async fn delete_session(Path(id): Path<String>) -> Result<Json<serde_json::Value>, StatusCode> {
     let _ = aa_session::storage::delete(&id);
     Ok(Json(serde_json::json!({ "deleted": true })))
@@ -717,7 +715,7 @@ async fn call_tool(
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, list_tools, call_tool, list_sessions),
+    paths(health, list_tools, call_tool, list_sessions, delete_session),
     components(schemas(
         HealthResponse,
         ToolInfo,
@@ -753,7 +751,11 @@ async fn openapi_json() -> Json<serde_json::Value> {
 // ---------------------------------------------------------------------------
 
 fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig, mcp_count: usize) -> Router {
-    let state = AppState { registry, resolved, mcp_count };
+    let state = AppState {
+        registry,
+        resolved,
+        mcp_count,
+    };
 
     Router::new()
         .route("/health", get(health))
@@ -772,9 +774,9 @@ fn build_kernel(config: &aa_config::Config) -> aa_kernel::Kernel {
         .with_tool_provider(std::sync::Arc::new(aa_function_tools::FsToolProvider));
 
     if let Some(mcp_json) = config.mcp_servers_json() {
-        builder = builder.with_tool_provider(
-            std::sync::Arc::new(aa_extension_mcp::McpToolProvider::from_json(mcp_json)),
-        );
+        builder = builder.with_tool_provider(std::sync::Arc::new(
+            aa_extension_mcp::McpToolProvider::from_json(mcp_json),
+        ));
     }
 
     builder.build()
@@ -790,7 +792,10 @@ pub async fn serve(
     cli_base_url: Option<&str>,
 ) -> anyhow::Result<()> {
     let config = aa_config::Config::load();
-    let mcp_count = config.mcp_servers_json().and_then(|j| j.as_array().map(|a| a.len())).unwrap_or(0);
+    let mcp_count = config
+        .mcp_servers_json()
+        .and_then(|j| j.as_array().map(|a| a.len()))
+        .unwrap_or(0);
     let kernel = build_kernel(&config);
     let scope = aa_kernel::ToolProviderScope::new(".");
     let registry = Arc::new(RwLock::new(kernel.build_tool_registry(&scope)));

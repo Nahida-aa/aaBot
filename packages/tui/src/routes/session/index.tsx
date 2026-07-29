@@ -1,13 +1,22 @@
-import { type Component, createSignal, createMemo, createResource, For, createEffect, onCleanup, onMount } from "solid-js";
+import {
+  type Component,
+  createSignal,
+  createMemo,
+  createResource,
+  For,
+  createEffect,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { SyntaxStyle, CliRenderEvents } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
-import type { AaClient, ChatMsg, ToolDef } from "@aa/sdk";
+import type { ChatMsg, ToolDef } from "@aa/sdk";
+import { health, listTools, chat } from "@aa/sdk";
 import { copy } from "../../util/selection";
 import { Sidebar } from "../../component/sidebar";
 import { Prompt } from "../../component/prompt";
 
 interface SessionProps {
-  client: AaClient;
   onBack: () => void;
   toast: {
     show: (input: { message: string; variant: "info" | "success" | "warning" | "error" }) => void;
@@ -46,9 +55,11 @@ export const Session: Component<SessionProps> = (props) => {
 
   onMount(async () => {
     try {
-      const h = await props.client.health();
-      if (!props.model) setModel(h.model);
-      if (!props.provider) setProvider(h.provider);
+      const { data: h } = await health();
+      if (h) {
+        if (!props.model) setModel(h.model);
+        if (!props.provider) setProvider(h.provider);
+      }
     } catch {}
   });
 
@@ -57,7 +68,11 @@ export const Session: Component<SessionProps> = (props) => {
   const [status, setStatus] = createSignal<"connected" | "error">("connected");
   const [statusText, setStatusText] = createSignal("");
 
-  const [tools] = createResource(() => props.client.listTools().catch<ToolDef[]>(() => []));
+  const [tools] = createResource(() =>
+    listTools()
+      .then((r) => r.data ?? [])
+      .catch<ToolDef[]>(() => []),
+  );
   const threadId = props.sessionID || crypto.randomUUID();
 
   const chatHistory = createMemo(() => {
@@ -78,10 +93,7 @@ export const Session: Component<SessionProps> = (props) => {
   const submit = async (text: string) => {
     if (!text.trim() || streaming()) return;
 
-    setMessages((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), role: "user", content: text },
-    ]);
+    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", content: text }]);
     setStreaming(true);
     setStatusText("waiting for response...");
 
@@ -98,7 +110,7 @@ export const Session: Component<SessionProps> = (props) => {
 
       let fullContent = "";
 
-      for await (const event of props.client.chat(history, toolDefs, threadId)) {
+      for await (const event of chat(history, toolDefs, threadId)) {
         switch (event.type) {
           case "TEXT_MESSAGE_CONTENT":
             fullContent += event.delta;
@@ -122,19 +134,18 @@ export const Session: Component<SessionProps> = (props) => {
           case "TOOL_CALL_ARGS":
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === event.toolCallId
-                  ? { ...m, content: m.content + event.delta }
-                  : m,
+                m.id === event.toolCallId ? { ...m, content: m.content + event.delta } : m,
               ),
             );
             break;
           case "TOOL_CALL_END":
             {
-              const preview = typeof event.result === "string"
-                ? event.result.length > 200
-                  ? event.result.slice(0, 200) + "..."
-                  : event.result
-                : JSON.stringify(event.result).slice(0, 200);
+              const preview =
+                typeof event.result === "string"
+                  ? event.result.length > 200
+                    ? event.result.slice(0, 200) + "..."
+                    : event.result
+                  : JSON.stringify(event.result).slice(0, 200);
               updateMsg(event.toolCallId, {
                 content: preview,
                 isStreaming: false,
@@ -171,26 +182,19 @@ export const Session: Component<SessionProps> = (props) => {
   };
 
   function updateMsg(id: string, patch: Partial<Msg>) {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
-    );
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
   }
 
   return (
-    <box
-      width="100%"
-      height="100%"
-      flexDirection="row"
-    >
+    <box width="100%" height="100%" flexDirection="row">
       {/* Sidebar */}
       <Sidebar
-        client={props.client}
         currentSessionId={threadId}
         onNewSession={() => {
-          window.location.reload()
+          window.location.reload();
         }}
         onSelectSession={(id) => {
-          props.onBack()
+          props.onBack();
           // navigate to different session via route
         }}
         onBack={props.onBack}
@@ -240,17 +244,13 @@ export const Session: Component<SessionProps> = (props) => {
                     </box>
                   ) : (
                     <>
-                      <text
-                        fg={msg.role === "user" ? "#4ade80" : "#22d3ee"}
-                      >
+                      <text fg={msg.role === "user" ? "#4ade80" : "#22d3ee"}>
                         {msg.role === "user" ? "You" : "AI"}
                       </text>
                       {msg.content ? (
                         <markdown content={msg.content} syntaxStyle={syntaxStyle} />
                       ) : null}
-                      {msg.isStreaming && !msg.content ? (
-                        <text fg="#666">▊</text>
-                      ) : null}
+                      {msg.isStreaming && !msg.content ? <text fg="#666">▊</text> : null}
                     </>
                   )}
                   <box height={1} />
@@ -262,19 +262,13 @@ export const Session: Component<SessionProps> = (props) => {
 
         {/* Status bar */}
         <box height={1} flexDirection="row">
-          {statusText() ? (
-            <text fg="#666">{statusText()}</text>
-          ) : null}
+          {statusText() ? <text fg="#666">{statusText()}</text> : null}
           <box flexGrow={1} />
         </box>
 
         {/* Input */}
         <box flexShrink={0}>
-          <Prompt
-            model={model()}
-            provider={provider()}
-            onSubmit={(value) => submit(value)}
-          />
+          <Prompt model={model()} provider={provider()} onSubmit={(value) => submit(value)} />
         </box>
       </box>
     </box>

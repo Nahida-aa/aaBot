@@ -1,30 +1,24 @@
-import { type Component, createResource, For, Show } from "solid-js"
-import type { AaClient, HealthResponse } from "@aa/sdk"
+import { type Component, createResource, For, Show } from "solid-js";
+import { health, listSessions } from "@aa/sdk";
 
 interface SidebarProps {
-  client: AaClient
-  currentSessionId?: string
-  onNewSession: () => void
-  onSelectSession: (id: string) => void
-  onBack: () => void
+  currentSessionId?: string;
+  onNewSession: () => void;
+  onSelectSession: (id: string) => void;
+  onBack: () => void;
 }
 
-const SIDEBAR_WIDTH = 28
+const SIDEBAR_WIDTH = 28;
 
 export const Sidebar: Component<SidebarProps> = (props) => {
-  const [health] = createResource(() => props.client.health().catch<HealthResponse | undefined>(() => undefined))
-  const [sessions] = createResource(() => props.client.listSessions().catch(() => []))
+  const [healthData] = createResource(() => health().then((r) => r.data));
+  const [sessions] = createResource(() => listSessions().then((r) => r.data ?? []));
 
-  const h = () => health()
-  const sessionList = () => sessions() ?? []
+  const h = () => healthData();
+  const sessionList = () => sessions() ?? [];
 
   return (
-    <box
-      width={SIDEBAR_WIDTH}
-      height="100%"
-      flexDirection="column"
-      backgroundColor="#0d1117"
-    >
+    <box width={SIDEBAR_WIDTH} height="100%" flexDirection="column" backgroundColor="#0d1117">
       {/* Brand */}
       <box height={1} flexDirection="row" paddingLeft={1}>
         <text fg="cyan">aaBot</text>
@@ -40,7 +34,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       <box flexDirection="column" paddingLeft={1} paddingRight={1}>
         <text fg="#555">Config</text>
         <Show when={h()}>
-          <text fg="#888">{h()!.provider}/{h()!.model}</text>
+          <text fg="#888">
+            {h()!.provider}/{h()!.model}
+          </text>
         </Show>
         <Show when={h()}>
           <text fg="#555">{h()!.tool_count} tools</text>
@@ -58,8 +54,8 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         <scrollbox flexGrow={1}>
           <For each={sessionList()}>
             {(s) => {
-              const shortId = s.session_id.length > 8 ? s.session_id.slice(0, 8) : s.session_id
-              const isCurrent = s.session_id === props.currentSessionId
+              const shortId = s.session_id.length > 8 ? s.session_id.slice(0, 8) : s.session_id;
+              const isCurrent = s.session_id === props.currentSessionId;
               return (
                 <box
                   height={1}
@@ -67,16 +63,12 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   backgroundColor={isCurrent ? "#3b82f644" : undefined}
                   on:press={() => props.onSelectSession(s.session_id)}
                 >
-                  <text fg={isCurrent ? "#3b82f6" : "#777"}>
-                    {isCurrent ? "► " : "  "}
-                  </text>
-                  <text fg={isCurrent ? "#ccc" : "#555"}>
-                    {shortId}
-                  </text>
+                  <text fg={isCurrent ? "#3b82f6" : "#777"}>{isCurrent ? "► " : "  "}</text>
+                  <text fg={isCurrent ? "#ccc" : "#555"}>{shortId}</text>
                   <box width={1} />
                   <text fg="#444">{s.model}</text>
                 </box>
-              )
+              );
             }}
           </For>
         </scrollbox>
@@ -85,10 +77,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       {/* New session button */}
       <box height={1} />
       <box height={1} paddingLeft={1} paddingRight={1}>
-        <box
-          backgroundColor="#333"
-          on:press={props.onNewSession}
-        >
+        <box backgroundColor="#333" on:press={props.onNewSession}>
           <text fg="#ccc"> + New Session</text>
         </box>
       </box>
@@ -101,5 +90,5 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       </box>
       <box height={1} />
     </box>
-  )
-}
+  );
+};

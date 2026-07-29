@@ -43,6 +43,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@hey-api/client-fetch": "^0.10.0",
+        "@tanstack/solid-query": "^5.101.4",
       },
       "devDependencies": {
         "@hey-api/openapi-ts": "^0.98.2",

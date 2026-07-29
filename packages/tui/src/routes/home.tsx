@@ -1,6 +1,15 @@
-import { type Component, createSignal, createResource, For, Show, onMount, createMemo } from "solid-js";
+import {
+  type Component,
+  createSignal,
+  createResource,
+  For,
+  Show,
+  onMount,
+  createMemo,
+} from "solid-js";
 import { useTerminalDimensions } from "@opentui/solid";
-import type { AaClient, SessionSummary } from "@aa/sdk";
+import type { SessionSummary } from "@aa/sdk";
+import { health, listSessions, deleteSession } from "@aa/sdk";
 import { useDialog } from "../ui/dialog";
 import { ConfigDialog } from "../component/dialog/config";
 import { SessionListDialog } from "../component/dialog/session-list";
@@ -11,16 +20,11 @@ import { useWorkspace } from "../context/workspace";
 import { Prompt, type PromptRef } from "../component/prompt";
 
 interface HomeProps {
-  client: AaClient;
   onStart: () => void;
   onContinue: (sessionId: string) => void;
 }
 
-function DeleteConfirm(props: {
-  sessionId: string
-  onConfirm: () => void
-  onCancel: () => void
-}) {
+function DeleteConfirm(props: { sessionId: string; onConfirm: () => void; onCancel: () => void }) {
   return (
     <box flexDirection="column" padding={1}>
       <text fg="#f87171">Delete session?</text>
@@ -38,7 +42,7 @@ function DeleteConfirm(props: {
         </box>
       </box>
     </box>
-  )
+  );
 }
 
 export const Home: Component<HomeProps> = (props) => {
@@ -46,7 +50,7 @@ export const Home: Component<HomeProps> = (props) => {
   const [toolCount, setToolCount] = createSignal(0);
   const [provider, setProvider] = createSignal("");
   const [model, setModel] = createSignal("");
-  const [sessions, { refetch }] = createResource(() => props.client.listSessions());
+  const [sessions, { refetch }] = createResource(() => listSessions().then((r) => r.data ?? []));
   const dialog = useDialog();
   const toast = useToast();
 
@@ -55,12 +59,14 @@ export const Home: Component<HomeProps> = (props) => {
 
   onMount(async () => {
     try {
-      const h = await props.client.health();
-      setConnected(true);
-      setToolCount(h.tool_count);
-      setProvider(h.provider);
-      setModel(h.model);
-      setMcpCount(h.mcp);
+      const { data: h } = await health();
+      if (h) {
+        setConnected(true);
+        setToolCount(h.tool_count);
+        setProvider(h.provider);
+        setModel(h.model);
+        setMcpCount(h.mcp);
+      }
     } catch {
       setConnected(false);
     }
@@ -76,91 +82,97 @@ export const Home: Component<HomeProps> = (props) => {
       <ConfigDialog
         current={{ provider: provider(), model: model(), baseUrl: "", hasApiKey: false }}
         onSave={(c) => {
-          setProvider(c.provider)
-          setModel(c.model)
-          toast.show({ message: `Config: ${c.provider}/${c.model}`, variant: "info" })
+          setProvider(c.provider);
+          setModel(c.model);
+          toast.show({ message: `Config: ${c.provider}/${c.model}`, variant: "info" });
         }}
       />
-    ))
-  }
+    ));
+  };
 
-  const deleteSession = async (id: string) => {
-    const ok = await props.client.deleteSession(id)
-    if (ok) {
-      toast.show({ message: "Session deleted", variant: "info" })
-      refetch()
+  const deleteSessionFn = async (id: string) => {
+    const { data } = await deleteSession({ path: { id } });
+    if (data) {
+      toast.show({ message: "Session deleted", variant: "info" });
+      refetch();
     } else {
-      toast.show({ message: "Failed to delete session", variant: "error" })
+      toast.show({ message: "Failed to delete session", variant: "error" });
     }
-  }
+  };
 
   const openPalette = () => {
-    dialog.push(
-      () => (
-        <CommandPalette
-          onCommand={(cmd: PaletteCommand) => {
-            switch (cmd.action) {
-              case "config": openConfig(); break
-              case "session-list":
-                dialog.push(() => (
-                  <SessionListDialog
-                    client={props.client}
-                    onSelect={(id) => props.onContinue(id)}
-                  />
-                ))
-                break
-              case "delete-session":
-                dialog.push(() => (
-                  <SessionListDialog
-                    client={props.client}
-                    onSelect={async (id) => {
-                      const ok = await props.client.deleteSession(id)
-                      toast.show({ message: ok ? "Session deleted" : "Delete failed", variant: ok ? "info" : "error" })
-                      refetch()
-                    }}
-                  />
-                ))
-                break
-              case "workspace":
-                dialog.push(() => <WorkspaceListDialog />)
-                break
-              case "back-home": /* already home */ break
-              case "new-session": props.onStart(); break
-              case "help":
-                toast.show({ message: "Ctrl+K: Palette · Esc: Close · ↑↓: Select", variant: "info" })
-                break
-            }
-          }}
-        />
-      ),
-    )
-  }
+    dialog.push(() => (
+      <CommandPalette
+        onCommand={(cmd: PaletteCommand) => {
+          switch (cmd.action) {
+            case "config":
+              openConfig();
+              break;
+            case "session-list":
+              dialog.push(() => <SessionListDialog onSelect={(id) => props.onContinue(id)} />);
+              break;
+            case "delete-session":
+              dialog.push(() => (
+                <SessionListDialog
+                  onSelect={async (id) => {
+                    const { data } = await deleteSession({ path: { id } });
+                    toast.show({
+                      message: data ? "Session deleted" : "Delete failed",
+                      variant: data ? "info" : "error",
+                    });
+                    refetch();
+                  }}
+                />
+              ));
+              break;
+            case "workspace":
+              dialog.push(() => <WorkspaceListDialog />);
+              break;
+            case "back-home":
+              /* already home */ break;
+            case "new-session":
+              props.onStart();
+              break;
+            case "help":
+              toast.show({ message: "Ctrl+K: Palette · Esc: Close · ↑↓: Select", variant: "info" });
+              break;
+          }
+        }}
+      />
+    ));
+  };
 
   const dimensions = useTerminalDimensions();
   const promptMaxWidth = createMemo(() => Math.max(75, Math.floor(dimensions().width * 0.7)));
-  const version = "v0.1.0"
+  const version = "v0.1.0";
 
   const placeholder = {
-    normal: ["Fix a TODO in the codebase", "What is the tech stack?", "Explain this code", "Write a test", "Bump the dependency"],
+    normal: [
+      "Fix a TODO in the codebase",
+      "What is the tech stack?",
+      "Explain this code",
+      "Write a test",
+      "Bump the dependency",
+    ],
   };
 
   return (
-    <box
-      width="100%"
-      height="100%"
-      flexDirection="column"
-    >
+    <box width="100%" height="100%" flexDirection="column">
       {/* Header */}
       <box height={1} flexDirection="row" paddingLeft={2} paddingRight={2}>
         <text fg="cyan">aaBot</text>
         <box width={1} />
         <Show when={connected()}>
-          <text fg="#555">{provider()}/{model()}</text>
+          <text fg="#555">
+            {provider()}/{model()}
+          </text>
         </Show>
         <box flexGrow={1} />
-        {connected()
-          ? <text fg="green">● {toolCount()} tools</text>
-          : <text fg="red">● Disconnected</text>}
+        {connected() ? (
+          <text fg="green">● {toolCount()} tools</text>
+        ) : (
+          <text fg="red">● Disconnected</text>
+        )}
         <box width={1} />
         <box on:press={openPalette}>
           <text fg="#3b82f6">[Ctrl+K]</text>
@@ -190,7 +202,10 @@ export const Home: Component<HomeProps> = (props) => {
                   on:press={() => props.onContinue(s.session_id)}
                 >
                   <text fg="#aaa">{s.session_id.slice(0, 8)}</text>
-                  <text fg="#666"> {s.model} · {s.message_count} msgs</text>
+                  <text fg="#666">
+                    {" "}
+                    {s.model} · {s.message_count} msgs
+                  </text>
                 </box>
                 <box
                   on:press={() => {
@@ -198,12 +213,12 @@ export const Home: Component<HomeProps> = (props) => {
                       <DeleteConfirm
                         sessionId={s.session_id}
                         onConfirm={() => {
-                          dialog.pop()
-                          deleteSession(s.session_id)
+                          dialog.pop();
+                          deleteSessionFn(id);
                         }}
                         onCancel={() => dialog.pop()}
                       />
-                    ))
+                    ));
                   }}
                 >
                   <text fg="#f87171">[×]</text>
@@ -227,8 +242,20 @@ export const Home: Component<HomeProps> = (props) => {
       </box>
 
       {/* Footer — matches opencode home_footer: [Directory] [MCP] spacer [Version] */}
-      <box width="100%" paddingTop={1} paddingBottom={1} paddingLeft={2} paddingRight={2} flexDirection="row" flexShrink={0} gap={2}>
-        <text fg="#555">{ws.directory().replace(process.env.HOME || "", "~")}{ws.branch() ? `:${ws.branch()}` : ""}</text>
+      <box
+        width="100%"
+        paddingTop={1}
+        paddingBottom={1}
+        paddingLeft={2}
+        paddingRight={2}
+        flexDirection="row"
+        flexShrink={0}
+        gap={2}
+      >
+        <text fg="#555">
+          {ws.directory().replace(process.env.HOME || "", "~")}
+          {ws.branch() ? `:${ws.branch()}` : ""}
+        </text>
         <Show when={mcpCount() > 0}>
           <text fg="#555">⊙ {mcpCount()} MCP</text>
         </Show>

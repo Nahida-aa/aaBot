@@ -1,151 +1,182 @@
-import { createFileRoute } from '@tanstack/solid-router'
-import { createSignal, createResource, For, Show, onMount } from 'solid-js'
-import { AaClient, type SseEvent, type ChatMsg } from '@aa/sdk'
+import { createFileRoute } from "@tanstack/solid-router";
+import { createSignal, createResource, For, Show, onMount } from "solid-js";
+import {
+  client,
+  health,
+  listSessions,
+  listTools,
+  deleteSession,
+  chat,
+  type SseEvent,
+  type ChatMsg,
+} from "@aa/sdk";
 
-const client = new AaClient('/api')
+client.setConfig({ baseUrl: "/api" });
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute("/")({
   component: RouteComponent,
-})
+});
 
 // ── Helper: truncate UUID ───────────────────────────────────────
 
 function shortId(id: string) {
-  return id.length > 8 ? id.slice(0, 8) : id
+  return id.length > 8 ? id.slice(0, 8) : id;
 }
 
 // ── Component ──────────────────────────────────────────────────
 
 function RouteComponent() {
-  const [h] = createResource(() => client.health().catch(() => undefined))
-  const [tools] = createResource(() => client.listTools().catch(() => []))
-  const [sessions, { refetch }] = createResource(() => client.listSessions().catch(() => []))
+  const [h] = createResource(() => health().then((r) => r.data));
+  const [tools] = createResource(() => listTools().then((r) => r.data ?? []));
+  const [sessions, { refetch }] = createResource(() => listSessions().then((r) => r.data ?? []));
 
-  const [messages, setMessages] = createSignal<ChatMsg[]>([])
-  const [input, setInput] = createSignal("")
-  const [streaming, setStreaming] = createSignal(false)
-  const [status, setStatus] = createSignal("")
-  const [currentId, setCurrentId] = createSignal<string>("")
-  const [sidebarOpen, setSidebarOpen] = createSignal(false)
+  const [messages, setMessages] = createSignal<ChatMsg[]>([]);
+  const [input, setInput] = createSignal("");
+  const [streaming, setStreaming] = createSignal(false);
+  const [status, setStatus] = createSignal("");
+  const [currentId, setCurrentId] = createSignal<string>("");
+  const [sidebarOpen, setSidebarOpen] = createSignal(false);
 
-  const threadId = () => currentId() || (crypto.randomUUID() as string)
+  const threadId = () => currentId() || (crypto.randomUUID() as string);
 
   async function send() {
-    const text = input().trim()
-    if (!text || streaming()) return
-    setInput("")
-    setStatus("streaming...")
+    const text = input().trim();
+    if (!text || streaming()) return;
+    setInput("");
+    setStatus("streaming...");
 
-    const userMsg: ChatMsg = { role: "user", content: text }
-    setMessages(prev => [...prev, userMsg])
+    const userMsg: ChatMsg = { role: "user", content: text };
+    setMessages((prev) => [...prev, userMsg]);
 
     const history = messages()
-      .filter(m => m.role === "user" || m.role === "assistant")
-      .concat(userMsg)
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .concat(userMsg);
 
-    setStreaming(true)
-    let replyId = crypto.randomUUID() as string
-    let replyContent = ""
-    let toolBuffer: { id: string; name: string; args: string }[] = []
+    setStreaming(true);
+    let replyId = crypto.randomUUID() as string;
+    let replyContent = "";
+    let toolBuffer: { id: string; name: string; args: string }[] = [];
 
-    setMessages(prev => [...prev, { role: "assistant", content: "" }])
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
-    const currentIdValue = threadId() as `${string}-${string}-${string}-${string}-${string}`
-    if (currentIdValue) setCurrentId(currentIdValue)
+    const currentIdValue = threadId() as `${string}-${string}-${string}-${string}-${string}`;
+    if (currentIdValue) setCurrentId(currentIdValue);
 
     try {
-      for await (const event of client.chat(history, tools() || [], currentIdValue)) {
+      for await (const event of chat(history, tools() || [], currentIdValue)) {
         switch (event.type) {
           case "TEXT_MESSAGE_START":
-            replyId = event.messageId as string
-            replyContent = ""
-            break
+            replyId = event.messageId as string;
+            replyContent = "";
+            break;
           case "TEXT_MESSAGE_CONTENT":
-            replyContent += event.delta
-            updateLastAsssistant(replyContent)
-            break
+            replyContent += event.delta;
+            updateLastAsssistant(replyContent);
+            break;
           case "TOOL_CALL_START":
-            setStatus(`🔧 ${event.toolCallName}`)
-            toolBuffer.push({ id: event.toolCallId, name: event.toolCallName, args: "" })
-            setMessages(prev => [...prev, {
-              role: "assistant",
-              tool_calls: [{ id: event.toolCallId, type: "function", function: { name: event.toolCallName, arguments: "" } }]
-            }])
-            break
+            setStatus(`🔧 ${event.toolCallName}`);
+            toolBuffer.push({ id: event.toolCallId, name: event.toolCallName, args: "" });
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                tool_calls: [
+                  {
+                    id: event.toolCallId,
+                    type: "function",
+                    function: { name: event.toolCallName, arguments: "" },
+                  },
+                ],
+              },
+            ]);
+            break;
           case "TOOL_CALL_ARGS": {
-            const tc = toolBuffer[toolBuffer.length - 1]
-            if (tc) tc.args += event.delta
-            setMessages(prev => prev.map(m => {
-              if (m.tool_calls?.[0]?.id === event.toolCallId) {
-                return { ...m, tool_calls: [{ ...m.tool_calls[0], function: { ...m.tool_calls[0].function, arguments: tc.args } }] }
-              }
-              return m
-            }))
-            break
+            const tc = toolBuffer[toolBuffer.length - 1];
+            if (tc) tc.args += event.delta;
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.tool_calls?.[0]?.id === event.toolCallId) {
+                  return {
+                    ...m,
+                    tool_calls: [
+                      {
+                        ...m.tool_calls[0],
+                        function: { ...m.tool_calls[0].function, arguments: tc.args },
+                      },
+                    ],
+                  };
+                }
+                return m;
+              }),
+            );
+            break;
           }
           case "TOOL_CALL_END":
-            setStatus("")
-            break
+            setStatus("");
+            break;
           case "RUN_ERROR":
-            setMessages(prev => {
-              const copy = [...prev]
+            setMessages((prev) => {
+              const copy = [...prev];
               if (copy[copy.length - 1]?.role === "assistant") {
-                copy[copy.length - 1] = { ...copy[copy.length - 1], content: `Error: ${event.message}` }
+                copy[copy.length - 1] = {
+                  ...copy[copy.length - 1],
+                  content: `Error: ${event.message}`,
+                };
               }
-              return copy
-            })
-            setStatus("error")
-            setStreaming(false)
-            return
+              return copy;
+            });
+            setStatus("error");
+            setStreaming(false);
+            return;
           case "RUN_FINISHED":
-            setStatus("")
-            setStreaming(false)
-            refetch()
-            return
+            setStatus("");
+            setStreaming(false);
+            refetch();
+            return;
         }
       }
     } catch (err) {
-      setMessages(prev => {
-        const copy = [...prev]
+      setMessages((prev) => {
+        const copy = [...prev];
         if (copy[copy.length - 1]?.role === "assistant") {
-          copy[copy.length - 1] = { ...copy[copy.length - 1], content: `Error: ${err}` }
+          copy[copy.length - 1] = { ...copy[copy.length - 1], content: `Error: ${err}` };
         }
-        return copy
-      })
-      setStatus("error")
+        return copy;
+      });
+      setStatus("error");
     }
-    setStreaming(false)
+    setStreaming(false);
   }
 
   function updateLastAsssistant(content: string) {
-    setMessages(prev => {
-      const copy = [...prev]
+    setMessages((prev) => {
+      const copy = [...prev];
       for (let i = copy.length - 1; i >= 0; i--) {
         if (copy[i].role === "assistant") {
-          copy[i] = { ...copy[i], content }
-          return copy
+          copy[i] = { ...copy[i], content };
+          return copy;
         }
       }
-      return [...prev, { role: "assistant", content }]
-    })
+      return [...prev, { role: "assistant", content }];
+    });
   }
 
   async function deleteSessionById(id: string) {
-    const ok = await client.deleteSession(id)
-    if (ok) refetch()
+    const { data } = await deleteSession({ path: { id } });
+    if (data) refetch();
   }
 
   async function newSession() {
-    setCurrentId("")
-    setMessages([])
-    setStatus("")
-    setStreaming(false)
+    setCurrentId("");
+    setMessages([]);
+    setStatus("");
+    setStreaming(false);
   }
 
   async function resumeSession(id: string) {
-    setCurrentId(id)
-    setSidebarOpen(false)
-    setMessages([])
+    setCurrentId(id);
+    setSidebarOpen(false);
+    setMessages([]);
   }
 
   return (
@@ -155,7 +186,7 @@ function RouteComponent() {
         <div class="flex items-center gap-3">
           <button
             class="text-[#3b82f6] hover:text-[#60a5fa] text-sm"
-            onClick={() => setSidebarOpen(o => !o)}
+            onClick={() => setSidebarOpen((o) => !o)}
           >
             ☰
           </button>
@@ -187,7 +218,8 @@ function RouteComponent() {
             <div class="flex-1 overflow-y-auto p-2">
               <For each={sessions()}>
                 {(s) => (
-                  <div class="flex items-center gap-1 px-2 py-1 hover:bg-[#161b22] rounded cursor-pointer group"
+                  <div
+                    class="flex items-center gap-1 px-2 py-1 hover:bg-[#161b22] rounded cursor-pointer group"
                     onClick={() => resumeSession(s.session_id)}
                   >
                     <span class="text-xs text-[#3b82f6] font-mono">{shortId(s.session_id)}</span>
@@ -195,7 +227,10 @@ function RouteComponent() {
                     <span class="text-xs text-[#555]">{s.message_count}</span>
                     <button
                       class="text-[#f87171] opacity-0 group-hover:opacity-100 text-xs"
-                      onClick={(e) => { e.stopPropagation(); deleteSessionById(s.session_id) }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSessionById(s.session_id);
+                      }}
                     >
                       ×
                     </button>
@@ -210,16 +245,20 @@ function RouteComponent() {
         <div class="flex-1 flex flex-col overflow-hidden">
           {/* Messages */}
           <div class="flex-1 overflow-y-auto p-4 space-y-4" id="chat-messages">
-            <Show when={messages().length === 0}
+            <Show
+              when={messages().length === 0}
               fallback={
                 <For each={messages()}>
                   {(msg) => (
                     <div class={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                      <div classList={{
-                        "max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words": true,
-                        "bg-[#1f6feb] text-white": msg.role === "user",
-                        "bg-[#161b22] border border-[#30363d] text-[#c9d1d9]": msg.role === "assistant" && !msg.tool_calls,
-                      }}>
+                      <div
+                        classList={{
+                          "max-w-[80%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words": true,
+                          "bg-[#1f6feb] text-white": msg.role === "user",
+                          "bg-[#161b22] border border-[#30363d] text-[#c9d1d9]":
+                            msg.role === "assistant" && !msg.tool_calls,
+                        }}
+                      >
                         <Show when={msg.tool_calls}>
                           <div class="flex items-center gap-2 text-xs text-yellow">
                             <span>🔧 {msg.tool_calls![0].function.name}</span>
@@ -230,9 +269,7 @@ function RouteComponent() {
                             </span>
                           </div>
                         </Show>
-                        <Show when={msg.content}>
-                          {msg.content}
-                        </Show>
+                        <Show when={msg.content}>{msg.content}</Show>
                       </div>
                     </div>
                   )}
@@ -252,9 +289,7 @@ function RouteComponent() {
 
           {/* Status bar */}
           <Show when={status()}>
-            <div class="px-4 py-1 text-xs text-[#666] border-t border-[#30363d]">
-              {status()}
-            </div>
+            <div class="px-4 py-1 text-xs text-[#666] border-t border-[#30363d]">{status()}</div>
           </Show>
 
           {/* Input */}
@@ -280,5 +315,5 @@ function RouteComponent() {
         </div>
       </div>
     </div>
-  )
+  );
 }
