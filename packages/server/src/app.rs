@@ -1,0 +1,73 @@
+use std::sync::Arc;
+
+use axum::Router;
+use axum::routing::{get, post};
+use tokio::sync::RwLock;
+
+use crate::{AppState, Registry};
+
+fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig, mcp_count: usize) -> Router {
+    let state = AppState {
+        registry,
+        resolved,
+        mcp_count,
+    };
+
+    Router::new()
+        .route("/health", get(super::health::health))
+        .route("/tools", get(super::tools::list_tools))
+        .route("/tools/{name}", post(super::tools::call_tool))
+        .route("/chat", post(super::chat::chat_sse))
+        .route("/sessions", get(super::sessions::list_sessions))
+        .route(
+            "/sessions/{id}",
+            get(super::sessions::get_session).delete(super::sessions::delete_session),
+        )
+        .route("/openapi.json", get(super::api_doc::openapi_json))
+        .with_state(state)
+}
+
+/// Build the kernel with built-in tool providers and optional MCP extensions.
+fn build_kernel(config: &aa_config::Config) -> aa_kernel::Kernel {
+    let mut builder = aa_kernel::Kernel::builder()
+        .with_tool_provider(std::sync::Arc::new(aa_function_tools::FsToolProvider));
+
+    if let Some(mcp_json) = config.mcp_servers_json() {
+        builder = builder.with_tool_provider(std::sync::Arc::new(
+            aa_extension_mcp::McpToolProvider::from_json(mcp_json),
+        ));
+    }
+
+    builder.build()
+}
+
+/// Start the aa server on the given port.
+///
+/// Optional config overrides (provider, model, base_url) take highest priority.
+pub async fn serve(
+    port: u16,
+    cli_provider: Option<&str>,
+    cli_model: Option<&str>,
+    cli_base_url: Option<&str>,
+) -> anyhow::Result<()> {
+    let config = aa_config::Config::load();
+    let mcp_count = config
+        .mcp_servers_json()
+        .and_then(|j| j.as_array().map(|a| a.len()))
+        .unwrap_or(0);
+    let kernel = build_kernel(&config);
+    let scope = aa_kernel::ToolProviderScope::new(".");
+    let registry = Arc::new(RwLock::new(kernel.build_tool_registry(&scope)));
+
+    let resolved = config.resolve(cli_provider, cli_model, cli_base_url);
+
+    let app = build_app(registry, resolved, mcp_count);
+
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
+        .await
+        .expect("Failed to bind");
+
+    tracing::info!("aaServer listening on http://0.0.0.0:{port}");
+    axum::serve(listener, app).await?;
+    Ok(())
+}
