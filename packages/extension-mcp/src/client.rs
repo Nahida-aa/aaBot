@@ -79,7 +79,9 @@ impl McpClient {
     }
 
     pub async fn list_tools(&self) -> anyhow::Result<Vec<McpToolDef>> {
-        let result: Value = self.send_request("tools/list", serde_json::json!({})).await?;
+        let result: Value = self
+            .send_request("tools/list", serde_json::json!({}))
+            .await?;
         let tools = result["tools"]
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("MCP tools/list returned no tools array"))?
@@ -93,11 +95,7 @@ impl McpClient {
         Ok(tools)
     }
 
-    pub async fn call_tool(
-        &self,
-        name: &str,
-        arguments: Value,
-    ) -> anyhow::Result<McpToolResult> {
+    pub async fn call_tool(&self, name: &str, arguments: Value) -> anyhow::Result<McpToolResult> {
         let result: Value = self
             .send_request(
                 "tools/call",
@@ -108,10 +106,7 @@ impl McpClient {
             )
             .await?;
 
-        let content = result["content"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        let content = result["content"].as_array().cloned().unwrap_or_default();
         let text = content
             .iter()
             .filter_map(|c| c["text"].as_str())
@@ -125,7 +120,9 @@ impl McpClient {
     }
 
     async fn send_request(&self, method: &str, params: Value) -> anyhow::Result<Value> {
-        let id = self.id_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let id = self
+            .id_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,

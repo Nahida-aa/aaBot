@@ -17,7 +17,6 @@ struct ConnectedServer {
     config: McpServerConfig,
     client: Arc<McpClient>,
     tools: Vec<ToolDef>,
-
 }
 
 #[derive(Clone)]
@@ -45,8 +44,7 @@ impl McpToolProvider {
                     }
                 };
 
-                let client = match rt.block_on(McpClient::connect(&config.command, &config.args))
-                {
+                let client = match rt.block_on(McpClient::connect(&config.command, &config.args)) {
                     Ok(c) => Arc::new(c),
                     Err(e) => {
                         tracing::warn!("MCP '{}' connect: {e}", config.name);
@@ -87,10 +85,7 @@ impl McpToolProvider {
                 obj.iter()
                     .map(|(name, val)| McpServerConfig {
                         name: name.clone(),
-                        command: val["command"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_owned(),
+                        command: val["command"].as_str().unwrap_or("").to_owned(),
                         args: val["args"]
                             .as_array()
                             .map(|a| {

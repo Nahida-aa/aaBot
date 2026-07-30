@@ -35,6 +35,9 @@ enum Command {
         /// 监听端口（默认 3000）
         #[arg(short, long, default_value = "3000")]
         port: u16,
+        /// 启用 mDNS 局域网发现（默认不启用）
+        #[arg(long)]
+        mdns: bool,
     },
     /// 连接到远程 server
     Attach {
@@ -93,7 +96,29 @@ fn main() {
     let working_dir = args.working_dir.as_deref().unwrap_or(".");
 
     match args.command {
-        None => spawn_tui(None, working_dir),
+        None => {
+            let rt = tokio::runtime::Runtime::new().expect("tokio rt");
+            let exit_code = rt.block_on(async {
+                let (port, listener, app) = aa_server::build(0, None, None, None)
+                    .await
+                    .expect("server build");
+                let url = format!("http://localhost:{port}");
+
+                tracing::info!("Starting TUI, server at {url}");
+
+                let server_task = tokio::spawn(async move {
+                    if let Err(e) = axum::serve(listener, app).await {
+                        tracing::error!("Server error: {e}");
+                    }
+                });
+
+                let code = spawn_tui(Some(&url), working_dir);
+
+                server_task.abort();
+                code
+            });
+            std::process::exit(exit_code.unwrap_or(1));
+        }
         Some(Command::Run(ref run_args)) => {
             let rt = tokio::runtime::Runtime::new().expect("tokio rt");
             rt.block_on(async {
@@ -103,7 +128,7 @@ fn main() {
                 run::cmd_run(run_args, &kernel, &registry).await;
             });
         }
-        Some(Command::Serve { port }) => {
+        Some(Command::Serve { port, mdns }) => {
             let rt = tokio::runtime::Runtime::new().expect("tokio rt");
             rt.block_on(async {
                 aa_server::serve(
@@ -111,6 +136,7 @@ fn main() {
                     args.provider.as_deref(),
                     args.model.as_deref(),
                     args.base_url.as_deref(),
+                    mdns,
                 )
                 .await
                 .expect("server failed");
@@ -118,6 +144,7 @@ fn main() {
         }
         Some(Command::Attach { ref url }) => {
             spawn_tui(Some(url), working_dir);
+            std::process::exit(0);
         }
         Some(Command::Tool(ref tool_args)) => {
             let rt = tokio::runtime::Runtime::new().expect("tokio rt");
@@ -126,34 +153,34 @@ fn main() {
         Some(Command::Extension(ref _ext_args)) => {
             println!("No extensions loaded (built-in only)");
         }
-        Some(Command::Session(ref session_args)) => {
-            match &session_args.command {
-                SessionCommand::List => {
-                    match aa_session::storage::list() {
-                        Ok(sessions) => {
-                            if sessions.is_empty() {
-                                println!("No saved sessions");
-                            } else {
-                                println!("Sessions:");
-                                for s in &sessions {
-                                    println!("  {}  (model: {}, {} msgs)",
-                                        &s.session_id[..8], s.model, s.messages.len());
-                                }
-                            }
+        Some(Command::Session(ref session_args)) => match &session_args.command {
+            SessionCommand::List => match aa_session::storage::list() {
+                Ok(sessions) => {
+                    if sessions.is_empty() {
+                        println!("No saved sessions");
+                    } else {
+                        println!("Sessions:");
+                        for s in &sessions {
+                            println!(
+                                "  {}  (model: {}, {} msgs)",
+                                &s.session_id[..8],
+                                s.model,
+                                s.messages.len()
+                            );
                         }
-                        Err(e) => eprintln!("Error: {e}"),
                     }
                 }
-                SessionCommand::Delete { session_id } => {
-                    aa_session::storage::delete(session_id).ok();
-                    println!("Deleted session {session_id}");
-                }
+                Err(e) => eprintln!("Error: {e}"),
+            },
+            SessionCommand::Delete { session_id } => {
+                aa_session::storage::delete(session_id).ok();
+                println!("Deleted session {session_id}");
             }
-        }
+        },
     }
 }
 
-fn spawn_tui(attach_url: Option<&str>, _working_dir: &str) {
+fn spawn_tui(attach_url: Option<&str>, _working_dir: &str) -> Option<i32> {
     let mut cmd = std::process::Command::new("bun");
     cmd.args(["run", "--conditions=browser", "packages/tui/src/index.tsx"])
         .stdout(std::process::Stdio::inherit())
@@ -163,15 +190,13 @@ fn spawn_tui(attach_url: Option<&str>, _working_dir: &str) {
         cmd.env("AA_SERVER_URL", url);
     }
 
-    let status = cmd.spawn().and_then(|mut child| child.wait());
-
-    match status {
-        Ok(exit) => std::process::exit(exit.code().unwrap_or(0)),
+    match cmd.spawn().and_then(|mut child| child.wait()) {
+        Ok(exit) => Some(exit.code().unwrap_or(0)),
         Err(e) => {
             eprintln!("Failed to launch TUI: {e}");
             eprintln!("Make sure bun is installed and the TUI dependencies are set up:");
             eprintln!("  cd packages/tui && bun install");
-            std::process::exit(1);
+            None
         }
     }
 }
@@ -211,9 +236,9 @@ pub(crate) fn build_kernel(config: &aa_config::Config) -> aa_kernel::Kernel {
         .with_tool_provider(Arc::new(aa_function_tools::FsToolProvider));
 
     if let Some(mcp_json) = config.mcp_servers_json() {
-        builder = builder.with_tool_provider(
-            Arc::new(aa_extension_mcp::McpToolProvider::from_json(mcp_json)),
-        );
+        builder = builder.with_tool_provider(Arc::new(
+            aa_extension_mcp::McpToolProvider::from_json(mcp_json),
+        ));
     }
 
     builder.build()

@@ -1,16 +1,22 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use tokio::sync::RwLock;
 
 use crate::{AppState, Registry};
 
-fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig, mcp_count: usize) -> Router {
+fn build_app(
+    registry: Registry,
+    resolved: aa_config::ResolvedConfig,
+    mcp_count: usize,
+    terminal: super::terminal::TerminalManager,
+) -> Router {
     let state = AppState {
         registry,
         resolved,
         mcp_count,
+        terminal,
     };
 
     Router::new()
@@ -23,6 +29,13 @@ fn build_app(registry: Registry, resolved: aa_config::ResolvedConfig, mcp_count:
             "/sessions/{id}",
             get(super::sessions::get_session).delete(super::sessions::delete_session),
         )
+        .route(
+            "/terminals",
+            get(super::terminal::list_sessions).post(super::terminal::create_session),
+        )
+        .route("/terminals/{id}", delete(super::terminal::delete_session))
+        .route("/terminal", get(super::terminal::ws_handler))
+        .route("/terminal/{id}", get(super::terminal::ws_session_handler))
         .route("/openapi.json", get(super::api_doc::openapi_json))
         .with_state(state)
 }
@@ -41,15 +54,17 @@ fn build_kernel(config: &aa_config::Config) -> aa_kernel::Kernel {
     builder.build()
 }
 
-/// Start the aa server on the given port.
+/// Build the kernel, registry, config, and axum app, then bind to a port.
 ///
-/// Optional config overrides (provider, model, base_url) take highest priority.
-pub async fn serve(
+/// Returns the bound port, the TcpListener, and the Router.
+/// The caller can either `axum::serve` on the listener (blocking) or
+/// spawn it on a background task.
+pub async fn build(
     port: u16,
     cli_provider: Option<&str>,
     cli_model: Option<&str>,
     cli_base_url: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(u16, tokio::net::TcpListener, Router)> {
     let config = aa_config::Config::load();
     let mcp_count = config
         .mcp_servers_json()
@@ -60,14 +75,50 @@ pub async fn serve(
     let registry = Arc::new(RwLock::new(kernel.build_tool_registry(&scope)));
 
     let resolved = config.resolve(cli_provider, cli_model, cli_base_url);
+    let terminal = super::terminal::TerminalManager::new();
 
-    let app = build_app(registry, resolved, mcp_count);
+    let app = build_app(registry, resolved, mcp_count, terminal);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
         .expect("Failed to bind");
 
-    tracing::info!("aaServer listening on http://0.0.0.0:{port}");
+    let actual_port = listener.local_addr().expect("local_addr").port();
+    tracing::info!("aaServer listening on http://0.0.0.0:{actual_port}");
+
+    Ok((actual_port, listener, app))
+}
+
+/// Start the aa server on the given port and block forever.
+///
+/// When `enable_mdns` is true, registers an mDNS service (`_aa._tcp.local`)
+/// for LAN discovery.
+///
+/// Optional config overrides (provider, model, base_url) take highest priority.
+pub async fn serve(
+    port: u16,
+    cli_provider: Option<&str>,
+    cli_model: Option<&str>,
+    cli_base_url: Option<&str>,
+    enable_mdns: bool,
+) -> anyhow::Result<()> {
+    let (actual_port, listener, app) = build(port, cli_provider, cli_model, cli_base_url).await?;
+
+    let _mdns = if enable_mdns {
+        match super::mdns::register(actual_port) {
+            Ok(d) => {
+                tracing::info!("mDNS: _aa._tcp.local registered");
+                Some(d)
+            }
+            Err(e) => {
+                tracing::warn!("mDNS: failed to register: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     axum::serve(listener, app).await?;
     Ok(())
 }

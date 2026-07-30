@@ -16,7 +16,9 @@ fn setup(dir: &std::path::Path) -> ToolExecutionContext {
 
 fn find_tool(provider: &FsToolProvider, name: &str) -> Arc<dyn Tool> {
     let scope = ToolProviderScope::new(".");
-    provider.tools(&scope).into_iter()
+    provider
+        .tools(&scope)
+        .into_iter()
         .find(|t| t.definition().name == name)
         .unwrap_or_else(|| panic!("tool {name} not found"))
 }
@@ -33,9 +35,8 @@ fn test_fs_read() {
     let ctx = setup(dir.path());
     let tool = find_tool(&FsToolProvider, "fs_read");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "hello.txt"}), &ctx
-    )));
+    let result =
+        assert_tool_ok(rt.block_on(tool.execute(serde_json::json!({"path": "hello.txt"}), &ctx)));
     assert_eq!(result.content, "Hello world!\n");
 }
 
@@ -46,10 +47,14 @@ fn test_fs_write() {
     let tool = find_tool(&FsToolProvider, "fs_write");
     let rt = tokio::runtime::Runtime::new().unwrap();
     let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "new.txt", "content": "test content"}), &ctx
+        serde_json::json!({"path": "new.txt", "content": "test content"}),
+        &ctx,
     )));
     assert!(result.content.contains("written"));
-    assert_eq!(std::fs::read_to_string(dir.path().join("new.txt")).unwrap(), "test content");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+        "test content"
+    );
 }
 
 #[test]
@@ -59,12 +64,17 @@ fn test_fs_write_append() {
     let tool = find_tool(&FsToolProvider, "fs_write");
     let rt = tokio::runtime::Runtime::new().unwrap();
     assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "log.txt", "content": "line 1\n"}), &ctx
+        serde_json::json!({"path": "log.txt", "content": "line 1\n"}),
+        &ctx,
     )));
     assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "log.txt", "content": "line 2\n", "append": true}), &ctx
+        serde_json::json!({"path": "log.txt", "content": "line 2\n", "append": true}),
+        &ctx,
     )));
-    assert_eq!(std::fs::read_to_string(dir.path().join("log.txt")).unwrap(), "line 1\nline 2\n");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("log.txt")).unwrap(),
+        "line 1\nline 2\n"
+    );
 }
 
 #[test]
@@ -73,9 +83,7 @@ fn test_fs_ls() {
     let ctx = setup(dir.path());
     let tool = find_tool(&FsToolProvider, "fs_ls");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "."}), &ctx
-    )));
+    let result = assert_tool_ok(rt.block_on(tool.execute(serde_json::json!({"path": "."}), &ctx)));
     let entries: Vec<serde_json::Value> = serde_json::from_str(&result.content).unwrap();
     let names: Vec<&str> = entries.iter().filter_map(|e| e["name"].as_str()).collect();
     assert!(names.contains(&"hello.txt"));
@@ -89,9 +97,9 @@ fn test_fs_ls_recursive() {
     let ctx = setup(dir.path());
     let tool = find_tool(&FsToolProvider, "fs_ls");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": ".", "recursive": true}), &ctx
-    )));
+    let result = assert_tool_ok(
+        rt.block_on(tool.execute(serde_json::json!({"path": ".", "recursive": true}), &ctx)),
+    );
     let entries: Vec<serde_json::Value> = serde_json::from_str(&result.content).unwrap();
     let names: Vec<&str> = entries.iter().filter_map(|e| e["name"].as_str()).collect();
     assert!(names.contains(&"nested.txt"));
@@ -103,9 +111,8 @@ fn test_fs_find() {
     let ctx = setup(dir.path());
     let tool = find_tool(&FsToolProvider, "fs_find");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"pattern": "**/*.txt"}), &ctx
-    )));
+    let result =
+        assert_tool_ok(rt.block_on(tool.execute(serde_json::json!({"pattern": "**/*.txt"}), &ctx)));
     assert!(result.content.contains("hello.txt") || result.content.contains("numbers.txt"));
 }
 
@@ -115,9 +122,8 @@ fn test_fs_grep() {
     let ctx = setup(dir.path());
     let tool = find_tool(&FsToolProvider, "fs_grep");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"pattern": "three"}), &ctx
-    )));
+    let result =
+        assert_tool_ok(rt.block_on(tool.execute(serde_json::json!({"pattern": "three"}), &ctx)));
     let matches: Vec<serde_json::Value> = serde_json::from_str(&result.content).unwrap();
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0]["content"].as_str(), Some("three"));
@@ -129,9 +135,8 @@ fn test_fs_info() {
     let ctx = setup(dir.path());
     let tool = find_tool(&FsToolProvider, "fs_info");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "hello.txt"}), &ctx
-    )));
+    let result =
+        assert_tool_ok(rt.block_on(tool.execute(serde_json::json!({"path": "hello.txt"}), &ctx)));
     let info: serde_json::Value = serde_json::from_str(&result.content).unwrap();
     assert_eq!(info["kind"], "file");
     assert!(info["size"].as_u64().unwrap() > 0);
@@ -143,9 +148,8 @@ fn test_fs_info_dir() {
     let ctx = setup(dir.path());
     let tool = find_tool(&FsToolProvider, "fs_info");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "subdir"}), &ctx
-    )));
+    let result =
+        assert_tool_ok(rt.block_on(tool.execute(serde_json::json!({"path": "subdir"}), &ctx)));
     let info: serde_json::Value = serde_json::from_str(&result.content).unwrap();
     assert_eq!(info["kind"], "dir");
 }
@@ -159,9 +163,7 @@ fn test_fs_read_nonexistent() {
     };
     let tool = find_tool(&FsToolProvider, "fs_read");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = rt.block_on(tool.execute(
-        serde_json::json!({"path": "nope.txt"}), &ctx
-    ));
+    let result = rt.block_on(tool.execute(serde_json::json!({"path": "nope.txt"}), &ctx));
     assert!(result.is_err());
 }
 
@@ -174,9 +176,9 @@ fn test_shell_exec_echo() {
     };
     let tool = find_tool(&FsToolProvider, "shell_exec");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"command": "echo hello world"}), &ctx
-    )));
+    let result = assert_tool_ok(
+        rt.block_on(tool.execute(serde_json::json!({"command": "echo hello world"}), &ctx)),
+    );
     assert_eq!(result.content.trim(), "hello world");
 }
 
@@ -189,9 +191,9 @@ fn test_shell_exec_exit_code() {
     };
     let tool = find_tool(&FsToolProvider, "shell_exec");
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let result = rt.block_on(tool.execute(
-        serde_json::json!({"command": "exit 42"}), &ctx
-    )).unwrap();
+    let result = rt
+        .block_on(tool.execute(serde_json::json!({"command": "exit 42"}), &ctx))
+        .unwrap();
     assert!(result.is_error);
     assert!(result.content.contains("exit code 42"));
 }
@@ -206,7 +208,8 @@ fn test_shell_exec_timeout() {
     let tool = find_tool(&FsToolProvider, "shell_exec");
     let rt = tokio::runtime::Runtime::new().unwrap();
     let result = rt.block_on(tool.execute(
-        serde_json::json!({"command": "sleep 10", "timeout_secs": 1}), &ctx
+        serde_json::json!({"command": "sleep 10", "timeout_secs": 1}),
+        &ctx,
     ));
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("timed out"));
@@ -217,17 +220,28 @@ fn test_web_fetch_definition() {
     let provider = FsToolProvider;
     let scope = ToolProviderScope::new(".");
     let tools = provider.tools(&scope);
-    let tool = tools.iter().find(|t| t.definition().name == "web_fetch").unwrap();
+    let tool = tools
+        .iter()
+        .find(|t| t.definition().name == "web_fetch")
+        .unwrap();
     let def = tool.definition();
     assert_eq!(def.name, "web_fetch");
     assert!(def.parameters["properties"]["url"].is_object());
-    assert!(def.parameters["required"].as_array().unwrap().contains(&serde_json::json!("url")));
+    assert!(
+        def.parameters["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("url"))
+    );
 }
 
 #[test]
 fn test_fs_read_range() {
     let dir = tempfile::tempdir().unwrap();
-    let content = (1..=20).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let content = (1..=20)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
     std::fs::write(dir.path().join("test.txt"), &content).unwrap();
     let ctx = ToolExecutionContext {
         session_id: "test".into(),
@@ -237,7 +251,8 @@ fn test_fs_read_range() {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     let result = assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "test.txt", "start": 5, "end": 8}), &ctx
+        serde_json::json!({"path": "test.txt", "start": 5, "end": 8}),
+        &ctx,
     )));
     assert!(result.content.contains("line 5"));
     assert!(result.content.contains("line 8"));
@@ -256,7 +271,8 @@ fn test_fs_edit_simple() {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     assert_tool_ok(rt.block_on(tool.execute(
-        serde_json::json!({"path": "test.txt", "old": "world", "new": "there"}), &ctx
+        serde_json::json!({"path": "test.txt", "old": "world", "new": "there"}),
+        &ctx,
     )));
     let content = std::fs::read_to_string(dir.path().join("test.txt")).unwrap();
     assert_eq!(content, "hello there\nfoo bar\n");
@@ -273,9 +289,12 @@ fn test_fs_edit_not_found() {
     let tool = find_tool(&FsToolProvider, "fs_edit");
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    let result = rt.block_on(tool.execute(
-        serde_json::json!({"path": "test.txt", "old": "nope", "new": "x"}), &ctx
-    )).unwrap();
+    let result = rt
+        .block_on(tool.execute(
+            serde_json::json!({"path": "test.txt", "old": "nope", "new": "x"}),
+            &ctx,
+        ))
+        .unwrap();
     assert!(result.is_error);
     assert!(result.content.contains("not found"));
 }
@@ -291,9 +310,12 @@ fn test_fs_edit_multiple_occurrences() {
     let tool = find_tool(&FsToolProvider, "fs_edit");
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    let result = rt.block_on(tool.execute(
-        serde_json::json!({"path": "test.txt", "old": "foo", "new": "baz"}), &ctx
-    )).unwrap();
+    let result = rt
+        .block_on(tool.execute(
+            serde_json::json!({"path": "test.txt", "old": "foo", "new": "baz"}),
+            &ctx,
+        ))
+        .unwrap();
     assert!(result.is_error);
     assert!(result.content.contains("2 occurrences"));
 }
@@ -304,5 +326,19 @@ fn test_fs_tool_provider_registration() {
     let scope = ToolProviderScope::new(".");
     let tools = provider.tools(&scope);
     let names: Vec<String> = tools.iter().map(|t| t.definition().name.clone()).collect();
-    assert_eq!(names, vec!["fs_read", "fs_write", "fs_ls", "fs_find", "fs_grep", "fs_info", "shell_exec", "web_fetch", "fs_read_range", "fs_edit"]);
+    assert_eq!(
+        names,
+        vec![
+            "fs_read",
+            "fs_write",
+            "fs_ls",
+            "fs_find",
+            "fs_grep",
+            "fs_info",
+            "shell_exec",
+            "web_fetch",
+            "fs_read_range",
+            "fs_edit"
+        ]
+    );
 }

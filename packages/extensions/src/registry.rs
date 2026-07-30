@@ -3,8 +3,7 @@
 use std::sync::Arc;
 
 use aa_core::extension::{
-    Extension, ExtensionCtx, ExtensionError, LifecycleHandler, Registrar, StopReason,
-    ToolHandler,
+    Extension, ExtensionCtx, ExtensionError, LifecycleHandler, Registrar, StopReason, ToolHandler,
 };
 
 /// 扩展注册表，管理扩展的完整生命周期。
@@ -49,11 +48,7 @@ impl ExtensionRegistry {
     pub async fn stop_all(&self) {
         for entry in self.entries.iter().rev() {
             if let Err(e) = entry.ext.stop(StopReason::Shutdown).await {
-                tracing::warn!(
-                    "Extension {} failed to stop: {}",
-                    entry.ext.id(),
-                    e
-                );
+                tracing::warn!("Extension {} failed to stop: {}", entry.ext.id(), e);
             }
         }
     }
@@ -72,9 +67,7 @@ impl ExtensionRegistry {
     }
 
     /// 遍历所有扩展的工具处理器。
-    pub fn all_tool_handlers(
-        &self,
-    ) -> Vec<(aa_core::ToolDefinition, Arc<dyn ToolHandler>)> {
+    pub fn all_tool_handlers(&self) -> Vec<(aa_core::ToolDefinition, Arc<dyn ToolHandler>)> {
         self.entries
             .iter()
             .flat_map(|e| {

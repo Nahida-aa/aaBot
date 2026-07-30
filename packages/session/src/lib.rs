@@ -11,8 +11,14 @@ pub mod storage;
 pub enum SessionEvent {
     Token(String),
     ToolCall(ToolCall),
-    ToolResult { name: String, content: String, is_error: bool },
-    Done { usage: Option<Usage> },
+    ToolResult {
+        name: String,
+        content: String,
+        is_error: bool,
+    },
+    Done {
+        usage: Option<Usage>,
+    },
     Error(String),
 }
 
@@ -27,11 +33,15 @@ pub struct TurnInput {
     pub session_id: String,
 }
 
-pub async fn run_turn(
-    input: TurnInput,
-    tx: tokio::sync::mpsc::Sender<SessionEvent>,
-) -> TurnInput {
-    let TurnInput { mut messages, provider, tools, model, working_dir, session_id } = input;
+pub async fn run_turn(input: TurnInput, tx: tokio::sync::mpsc::Sender<SessionEvent>) -> TurnInput {
+    let TurnInput {
+        mut messages,
+        provider,
+        tools,
+        model,
+        working_dir,
+        session_id,
+    } = input;
 
     let tool_defs: Vec<serde_json::Value> = tools
         .iter()
@@ -55,7 +65,14 @@ pub async fn run_turn(
             Ok(rx) => rx,
             Err(e) => {
                 let _ = tx.send(SessionEvent::Error(format!("{e}"))).await;
-                return TurnInput { messages, provider, tools, model, working_dir, session_id };
+                return TurnInput {
+                    messages,
+                    provider,
+                    tools,
+                    model,
+                    working_dir,
+                    session_id,
+                };
             }
         };
 
@@ -83,19 +100,28 @@ pub async fn run_turn(
 
                     if tool_calls.is_empty() {
                         let _ = tx.send(SessionEvent::Done { usage: Some(usage) }).await;
-                        return TurnInput { messages, provider, tools, model, working_dir, session_id };
+                        return TurnInput {
+                            messages,
+                            provider,
+                            tools,
+                            model,
+                            working_dir,
+                            session_id,
+                        };
                     }
 
                     for tc in &tool_calls {
-                        let args: serde_json::Value =
-                            serde_json::from_str(&tc.function.arguments)
-                                .unwrap_or(serde_json::Value::Null);
+                        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                            .unwrap_or(serde_json::Value::Null);
                         let ctx = ToolExecutionContext {
                             session_id: session_id.clone(),
                             working_dir: working_dir.clone(),
                         };
 
-                        match tools.iter().find(|t| t.definition().name == tc.function.name) {
+                        match tools
+                            .iter()
+                            .find(|t| t.definition().name == tc.function.name)
+                        {
                             Some(tool) => match tool.execute(args, &ctx).await {
                                 Ok(result) => {
                                     let content = result.content;
@@ -106,11 +132,13 @@ pub async fn run_turn(
                                         tool_call_id: Some(tc.id.clone()),
                                         name: Some(tc.function.name.clone()),
                                     });
-                                    let _ = tx.send(SessionEvent::ToolResult {
-                                        name: tc.function.name.clone(),
-                                        content,
-                                        is_error: result.is_error,
-                                    }).await;
+                                    let _ = tx
+                                        .send(SessionEvent::ToolResult {
+                                            name: tc.function.name.clone(),
+                                            content,
+                                            is_error: result.is_error,
+                                        })
+                                        .await;
                                 }
                                 Err(e) => {
                                     let err = format!("Error: {e}");
@@ -121,11 +149,13 @@ pub async fn run_turn(
                                         tool_call_id: Some(tc.id.clone()),
                                         name: Some(tc.function.name.clone()),
                                     });
-                                    let _ = tx.send(SessionEvent::ToolResult {
-                                        name: tc.function.name.clone(),
-                                        content: err,
-                                        is_error: true,
-                                    }).await;
+                                    let _ = tx
+                                        .send(SessionEvent::ToolResult {
+                                            name: tc.function.name.clone(),
+                                            content: err,
+                                            is_error: true,
+                                        })
+                                        .await;
                                 }
                             },
                             None => {
@@ -137,11 +167,13 @@ pub async fn run_turn(
                                     tool_call_id: Some(tc.id.clone()),
                                     name: Some(tc.function.name.clone()),
                                 });
-                                let _ = tx.send(SessionEvent::ToolResult {
-                                    name: tc.function.name.clone(),
-                                    content: err,
-                                    is_error: true,
-                                }).await;
+                                let _ = tx
+                                    .send(SessionEvent::ToolResult {
+                                        name: tc.function.name.clone(),
+                                        content: err,
+                                        is_error: true,
+                                    })
+                                    .await;
                             }
                         }
                     }
@@ -149,7 +181,14 @@ pub async fn run_turn(
                 }
                 StreamEvent::Error(msg) => {
                     let _ = tx.send(SessionEvent::Error(msg)).await;
-                    return TurnInput { messages, provider, tools, model, working_dir, session_id };
+                    return TurnInput {
+                        messages,
+                        provider,
+                        tools,
+                        model,
+                        working_dir,
+                        session_id,
+                    };
                 }
             }
         }

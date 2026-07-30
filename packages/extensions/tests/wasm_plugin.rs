@@ -8,7 +8,9 @@ fn test_wasm_plugin_load_and_execute() {
 
     let loader = WasmExtensionLoader::new().expect("WasmExtensionLoader creation failed");
 
-    let ext = loader.load_bytes(&wasm_bytes).expect("WASM component loading failed");
+    let ext = loader
+        .load_bytes(&wasm_bytes)
+        .expect("WASM component loading failed");
 
     assert_eq!(ext.id(), "hello-wasm");
 

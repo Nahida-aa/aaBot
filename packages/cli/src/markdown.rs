@@ -1,5 +1,5 @@
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use ratatui::prelude::*;
-use pulldown_cmark::{Event, Tag, TagEnd, HeadingLevel, CodeBlockKind};
 
 /// 将 markdown 文本渲染为 Ratatui 行（带样式）。
 pub fn render(text: &str) -> Vec<Line<'static>> {
@@ -101,10 +101,7 @@ pub fn render(text: &str) -> Vec<Line<'static>> {
                 lines.extend(current_line.take());
             }
             Event::Rule => {
-                lines.push(Line::from(Span::styled(
-                    "─".repeat(40),
-                    Style::new().dim(),
-                )));
+                lines.push(Line::from(Span::styled("─".repeat(40), Style::new().dim())));
             }
             _ => {}
         }
@@ -135,7 +132,11 @@ struct StyledLine {
 
 impl StyledLine {
     fn new() -> Self {
-        Self { spans: Vec::new(), buffer: String::new(), style: Style::new() }
+        Self {
+            spans: Vec::new(),
+            buffer: String::new(),
+            style: Style::new(),
+        }
     }
 
     fn push_str(&mut self, text: &str, style: Style) {

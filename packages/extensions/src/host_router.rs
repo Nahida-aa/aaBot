@@ -8,13 +8,7 @@ use parking_lot::RwLock;
 /// 主机路由器决定扩展的每个工具调用是否放行。
 pub struct HostRouter {
     grants: RwLock<Vec<(String, Vec<ExtensionCapability>)>>,
-    handler_map: RwLock<
-        Vec<(
-            String,
-            Arc<dyn ToolHandler>,
-            Vec<ExtensionCapability>,
-        )>,
-    >,
+    handler_map: RwLock<Vec<(String, Arc<dyn ToolHandler>, Vec<ExtensionCapability>)>>,
 }
 
 impl HostRouter {
@@ -37,11 +31,7 @@ impl HostRouter {
         let mut map = self.handler_map.write();
         for (def, handler) in tools {
             let prefixed_name = format!("{extension_id}__{}", def.name);
-            map.push((
-                prefixed_name,
-                handler,
-                capabilities.to_vec(),
-            ));
+            map.push((prefixed_name, handler, capabilities.to_vec()));
         }
     }
 
@@ -60,9 +50,7 @@ impl HostRouter {
                 .map(|(_, handler, _)| Arc::clone(handler))
         };
         match handler {
-            Some(handler) => handler
-                .execute(prefixed_name, args, working_dir, ctx)
-                .await,
+            Some(handler) => handler.execute(prefixed_name, args, working_dir, ctx).await,
             None => Err(ExtensionError::NotFound(format!(
                 "Tool {prefixed_name} not found in any extension"
             ))),

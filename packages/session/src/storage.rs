@@ -47,8 +47,7 @@ pub fn save(
     let path = session_path(session_id);
 
     let file = if path.exists() {
-        let mut existing: SessionFile =
-            serde_json::from_reader(std::fs::File::open(&path)?)?;
+        let mut existing: SessionFile = serde_json::from_reader(std::fs::File::open(&path)?)?;
         existing.messages = messages.to_vec();
         existing.model = model.into();
         existing.provider = provider.into();

@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/solid-router";
 import { createSignal, createResource, For, Show, onMount } from "solid-js";
 import {
-  client,
   health,
   listSessions,
   listTools,
@@ -10,8 +9,6 @@ import {
   type SseEvent,
   type ChatMsg,
 } from "@aa/sdk";
-
-client.setConfig({ baseUrl: "/api" });
 
 export const Route = createFileRoute("/")({
   component: RouteComponent,
@@ -71,7 +68,7 @@ function RouteComponent() {
             break;
           case "TEXT_MESSAGE_CONTENT":
             replyContent += event.delta;
-            updateLastAsssistant(replyContent);
+            updateLastAssistant(replyContent);
             break;
           case "TOOL_CALL_START":
             setStatus(`🔧 ${event.toolCallName}`);
@@ -148,7 +145,7 @@ function RouteComponent() {
     setStreaming(false);
   }
 
-  function updateLastAsssistant(content: string) {
+  function updateLastAssistant(content: string) {
     setMessages((prev) => {
       const copy = [...prev];
       for (let i = copy.length - 1; i >= 0; i--) {
@@ -204,6 +201,9 @@ function RouteComponent() {
           <button class="text-[#3b82f6] hover:text-[#60a5fa]" onClick={newSession}>
             + New
           </button>
+          <a href="/terminal" class="text-[#3b82f6] hover:text-[#60a5fa] text-xs">
+            Terminal
+          </a>
         </div>
       </header>
 

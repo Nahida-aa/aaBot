@@ -4,13 +4,11 @@
 
 use std::sync::Arc;
 
-use aa_core::extension::{
-    Extension, ExtensionCtx, ExtensionError, Registrar, ToolHandler,
-};
+use aa_core::extension::{Extension, ExtensionCtx, ExtensionError, Registrar, ToolHandler};
 use aa_kernel::tool_provider::{
     ExecutionMode, ToolDefinition, ToolExecutionContext, ToolOrigin, ToolResult,
 };
-use wasmtime::component::{bindgen, Component, Linker};
+use wasmtime::component::{Component, Linker, bindgen};
 use wasmtime::{Config, Engine, Store};
 
 bindgen!();
@@ -56,13 +54,11 @@ impl WasmExtensionLoader {
         wasm: &WasmComponent,
     ) -> Result<(String, Vec<serde_json::Value>), wasmtime::Error> {
         let mut store = Store::new(&wasm.engine, ());
-        let bindings =
-            ExtensionWorld::instantiate(&mut store, &wasm.component, &wasm.linker)?;
+        let bindings = ExtensionWorld::instantiate(&mut store, &wasm.component, &wasm.linker)?;
         let plugin = bindings.aa_extension_plugin();
         let id = plugin.call_get_id(&mut store)?;
         let tools_json = plugin.call_register(&mut store)?;
-        let tools: Vec<serde_json::Value> =
-            serde_json::from_str(&tools_json).unwrap_or_default();
+        let tools: Vec<serde_json::Value> = serde_json::from_str(&tools_json).unwrap_or_default();
         Ok((id, tools))
     }
 }
@@ -82,10 +78,7 @@ impl Extension for WasmExtension {
     fn register(&self, reg: &mut Registrar) {
         for tool_val in &self.tools {
             let name = tool_val["name"].as_str().unwrap_or("unknown").to_owned();
-            let desc = tool_val["description"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned();
+            let desc = tool_val["description"].as_str().unwrap_or("").to_owned();
             let params = tool_val["parameters"].clone();
 
             let def = ToolDefinition {
@@ -109,10 +102,7 @@ impl Extension for WasmExtension {
         Ok(())
     }
 
-    async fn stop(
-        &self,
-        _reason: aa_core::extension::StopReason,
-    ) -> Result<(), ExtensionError> {
+    async fn stop(&self, _reason: aa_core::extension::StopReason) -> Result<(), ExtensionError> {
         Ok(())
     }
 }
@@ -139,12 +129,8 @@ impl ToolHandler for WasmToolHandler {
 
         let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
             let mut store = Store::new(&wasm.engine, ());
-            let bindings = ExtensionWorld::instantiate(
-                &mut store,
-                &wasm.component,
-                &wasm.linker,
-            )
-            .map_err(|e| e.to_string())?;
+            let bindings = ExtensionWorld::instantiate(&mut store, &wasm.component, &wasm.linker)
+                .map_err(|e| e.to_string())?;
             let plugin = bindings.aa_extension_plugin();
             plugin
                 .call_execute(&mut store, &tool, &args, &session, &wd)

@@ -4,6 +4,9 @@
   "description": "",
   "license": "MIT",
   "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
   "scripts": {
     "start": "vite",
     "dev": "vite",
@@ -23,6 +26,9 @@
     "@tanstack/solid-router": "^1.170.18",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "lucide-solid": "^1.27.0",
     "solid-js": "^1.9.3",
     "tailwindcss": "^4.3.3",
     "tailwindcss-animate": "^1.0.7"

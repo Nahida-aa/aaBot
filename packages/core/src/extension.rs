@@ -45,10 +45,7 @@ pub trait Extension: Send + Sync {
     }
 
     /// 配置热更新。
-    async fn on_config_changed(
-        &self,
-        _config: ExtensionConfig,
-    ) -> Result<(), ExtensionError> {
+    async fn on_config_changed(&self, _config: ExtensionConfig) -> Result<(), ExtensionError> {
         Ok(())
     }
 }
@@ -86,9 +83,7 @@ pub enum ExtensionCapability {
 pub struct ExtensionConfig(pub serde_json::Value);
 
 impl ExtensionConfig {
-    pub fn deserialize<T: serde::de::DeserializeOwned>(
-        &self,
-    ) -> Result<T, serde_json::Error> {
+    pub fn deserialize<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         serde_json::from_value(self.0.clone())
     }
 
@@ -197,16 +192,8 @@ impl ExtensionTasks {
 ///
 /// 在 Extension::register() 期间有效，扩展通过它声明自己提供的能力。
 pub struct Registrar {
-    tools: Vec<(
-        crate::ToolDefinition,
-        Arc<dyn ToolHandler>,
-    )>,
-    hooks: Vec<(
-        ExtensionEvent,
-        HookMode,
-        i32,
-        Arc<dyn LifecycleHandler>,
-    )>,
+    tools: Vec<(crate::ToolDefinition, Arc<dyn ToolHandler>)>,
+    hooks: Vec<(ExtensionEvent, HookMode, i32, Arc<dyn LifecycleHandler>)>,
     #[allow(dead_code)]
     capabilities: Vec<ExtensionCapability>,
 }
@@ -220,11 +207,7 @@ impl Registrar {
         }
     }
 
-    pub fn tool(
-        &mut self,
-        def: crate::ToolDefinition,
-        handler: Arc<dyn ToolHandler>,
-    ) {
+    pub fn tool(&mut self, def: crate::ToolDefinition, handler: Arc<dyn ToolHandler>) {
         self.tools.push((def, handler));
     }
 

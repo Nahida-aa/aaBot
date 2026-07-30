@@ -5,21 +5,19 @@
 
 // ─── 核心扩展类型 ────────────────────────────────────────────────────
 pub use aa_core::extension::{
-    Extension, ExtensionCapability, ExtensionConfig, ExtensionCtx, ExtensionError,
-    ExtensionTasks, HookMode, HookResult, LifecycleContext, LifecycleHandler,
-    Registrar, StopReason, ToolHandler,
+    Extension, ExtensionCapability, ExtensionConfig, ExtensionCtx, ExtensionError, ExtensionTasks,
+    HookMode, HookResult, LifecycleContext, LifecycleHandler, Registrar, StopReason, ToolHandler,
 };
 
 // ─── 工具类型 ─────────────────────────────────────────────────────────
 pub use aa_kernel::tool_provider::{
-    ExecutionMode, Tool, ToolDefinition, ToolError, ToolExecutionContext, ToolOrigin,
-    ToolResult,
+    ExecutionMode, Tool, ToolDefinition, ToolError, ToolExecutionContext, ToolOrigin, ToolResult,
 };
 
 // ─── LLM 类型 ─────────────────────────────────────────────────────────
 pub use aa_core::llm::{
-    Message, ModelConfig, ModelError, ModelProvider, ModelRequest, ModelResponse,
-    ModelResult, ProviderId, Role, StreamEvent, ToolCall, Usage,
+    Message, ModelConfig, ModelError, ModelProvider, ModelRequest, ModelResponse, ModelResult,
+    ProviderId, Role, StreamEvent, ToolCall, Usage,
 };
 
 // ─── 事件 ─────────────────────────────────────────────────────────────

@@ -45,41 +45,35 @@ pub async fn cmd_run(
     );
 
     let provider: Arc<dyn ModelProvider> = match resolved.provider.as_str() {
-        "ollama" => {
-            Arc::new(aa_ollama::OllamaProvider::new(aa_ollama::OllamaConfig {
-                base_url: resolved.base_url.clone(),
-                default_model: resolved.model.clone(),
-            }))
-        }
-        _ => {
-            Arc::new(aa_llm::OpenAiCompatibleProvider::new(aa_llm::OpenAiConfig {
+        "ollama" => Arc::new(aa_ollama::OllamaProvider::new(aa_ollama::OllamaConfig {
+            base_url: resolved.base_url.clone(),
+            default_model: resolved.model.clone(),
+        })),
+        _ => Arc::new(aa_llm::OpenAiCompatibleProvider::new(
+            aa_llm::OpenAiConfig {
                 base_url: resolved.base_url.clone(),
                 api_key: resolved.api_key.clone(),
                 default_model: resolved.model.clone(),
-            }))
-        }
+            },
+        )),
     };
 
     // ── Resolve session ID ─────────────────────────────────
     let session_id = match args.session.as_str() {
         "new" => uuid::Uuid::new_v4().to_string(),
-        "last" => {
-            match aa_session::storage::list() {
-                Ok(sessions) if !sessions.is_empty() => sessions[0].session_id.clone(),
-                _ => {
-                    eprintln!("No saved sessions found. Starting new one.");
-                    uuid::Uuid::new_v4().to_string()
-                }
+        "last" => match aa_session::storage::list() {
+            Ok(sessions) if !sessions.is_empty() => sessions[0].session_id.clone(),
+            _ => {
+                eprintln!("No saved sessions found. Starting new one.");
+                uuid::Uuid::new_v4().to_string()
             }
-        }
+        },
         id => id.to_string(),
     };
 
     // ── Load or init messages ───────────────────────────────
     let mut messages: Vec<Message> = if args.session != "new" {
-        aa_session::storage::load(&session_id).unwrap_or_else(|_| {
-            vec![system_message()]
-        })
+        aa_session::storage::load(&session_id).unwrap_or_else(|_| vec![system_message()])
     } else {
         vec![system_message()]
     };
@@ -88,7 +82,11 @@ pub async fn cmd_run(
         eprintln!("Session: {} (new)", &session_id[..8]);
     } else {
         let msg_count = messages.iter().filter(|m| m.role != Role::System).count();
-        eprintln!("Session: {} (continuing, {} messages)", &session_id[..8], msg_count);
+        eprintln!(
+            "Session: {} (continuing, {} messages)",
+            &session_id[..8],
+            msg_count
+        );
     }
 
     println!("Type your message (Ctrl+C to exit)\n");
@@ -141,7 +139,9 @@ pub async fn cmd_run(
                 aa_session::SessionEvent::ToolCall(tc) => {
                     println!("\n  \x1b[33m↻ tool: {}\x1b[0m", &tc.function.name);
                 }
-                aa_session::SessionEvent::ToolResult { content, is_error, .. } => {
+                aa_session::SessionEvent::ToolResult {
+                    content, is_error, ..
+                } => {
                     if is_error {
                         println!("  \x1b[31m✗ error:\x1b[0m {}", content);
                     } else {
@@ -173,12 +173,9 @@ pub async fn cmd_run(
         messages = result.messages;
 
         // ── Persist after each turn ─────────────────────────
-        if let Err(e) = aa_session::storage::save(
-            &session_id,
-            &messages,
-            &resolved.model,
-            &resolved.provider,
-        ) {
+        if let Err(e) =
+            aa_session::storage::save(&session_id, &messages, &resolved.model, &resolved.provider)
+        {
             eprintln!("Warning: failed to save session: {e}");
         }
     }

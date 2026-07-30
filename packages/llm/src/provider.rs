@@ -303,7 +303,10 @@ fn build_request(
                     function: types::ToolFunction {
                         name: t["name"].as_str().unwrap_or("").to_owned(),
                         description: t["description"].as_str().unwrap_or("").to_owned(),
-                        parameters: t.get("parameters").cloned().unwrap_or(serde_json::Value::Null),
+                        parameters: t
+                            .get("parameters")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null),
                     },
                 })
                 .collect(),

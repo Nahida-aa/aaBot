@@ -54,7 +54,10 @@ pub fn read() -> Option<String> {
 fn macos_write(text: &str) -> Result<(), String> {
     let mut child = Command::new("osascript")
         .arg("-e")
-        .arg(format!("set the clipboard to \"{}\"", text.replace('"', "\\\"")))
+        .arg(format!(
+            "set the clipboard to \"{}\"",
+            text.replace('"', "\\\"")
+        ))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -93,7 +96,9 @@ fn linux_write_tool(text: &str, bin: &str, args: &[&str]) -> Result<(), String> 
         .map_err(|e| format!("spawn {bin}: {e}"))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(text.as_bytes()).map_err(|e| format!("write stdin: {e}"))?;
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|e| format!("write stdin: {e}"))?;
     }
     child.wait().map_err(|e| format!("wait {bin}: {e}"))?;
     Ok(())
@@ -124,7 +129,10 @@ fn windows_write(text: &str) -> Result<(), String> {
     let mut child = Command::new("powershell.exe")
         .arg("-NoProfile")
         .arg("-Command")
-        .arg(format!("[System.Windows.Forms.Clipboard]::SetText('{}')", text.replace('\'', "''")))
+        .arg(format!(
+            "[System.Windows.Forms.Clipboard]::SetText('{}')",
+            text.replace('\'', "''")
+        ))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

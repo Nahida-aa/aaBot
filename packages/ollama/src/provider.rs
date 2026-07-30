@@ -54,8 +54,7 @@ impl ModelProvider for OllamaProvider {
 
         let mut tool_calls = Vec::new();
         for (i, tc) in data.message.tool_calls.iter().enumerate() {
-            let args_str = serde_json::to_string(&tc.function.arguments)
-                .unwrap_or_default();
+            let args_str = serde_json::to_string(&tc.function.arguments).unwrap_or_default();
             tool_calls.push(CoreToolCall {
                 id: format!("ollama_tc_{i}"),
                 call_type: "function".into(),
@@ -66,13 +65,14 @@ impl ModelProvider for OllamaProvider {
             });
         }
 
-        let usage = data.prompt_eval_count.zip(data.eval_count).map(|(p, c)| {
-            CoreUsage {
+        let usage = data
+            .prompt_eval_count
+            .zip(data.eval_count)
+            .map(|(p, c)| CoreUsage {
                 prompt_tokens: p,
                 completion_tokens: c,
                 total_tokens: p + c,
-            }
-        });
+            });
 
         Ok(ModelResponse {
             message: CoreMessage {
@@ -157,8 +157,8 @@ async fn stream_worker(
             if data.done {
                 if !data.message.tool_calls.is_empty() {
                     for (i, tc) in data.message.tool_calls.iter().enumerate() {
-                        let args_str = serde_json::to_string(&tc.function.arguments)
-                            .unwrap_or_default();
+                        let args_str =
+                            serde_json::to_string(&tc.function.arguments).unwrap_or_default();
                         let _ = tx
                             .send(StreamEvent::ToolCall(CoreToolCall {
                                 id: format!("ollama_tc_{i}"),
@@ -172,13 +172,14 @@ async fn stream_worker(
                     }
                 }
 
-                final_usage = data.prompt_eval_count.zip(data.eval_count).map(|(p, c)| {
-                    CoreUsage {
+                final_usage = data
+                    .prompt_eval_count
+                    .zip(data.eval_count)
+                    .map(|(p, c)| CoreUsage {
                         prompt_tokens: p,
                         completion_tokens: c,
                         total_tokens: p + c,
-                    }
-                });
+                    });
 
                 break;
             }
@@ -220,9 +221,8 @@ fn build_request(
                 calls
                     .iter()
                     .map(|c| {
-                        let args: serde_json::Value =
-                            serde_json::from_str(&c.function.arguments)
-                                .unwrap_or(serde_json::Value::Null);
+                        let args: serde_json::Value = serde_json::from_str(&c.function.arguments)
+                            .unwrap_or(serde_json::Value::Null);
                         types::ToolCall {
                             function: types::ToolCallFunction {
                                 name: c.function.name.clone(),
@@ -260,7 +260,10 @@ fn build_request(
                     function: types::ToolFunction {
                         name: t["name"].as_str().unwrap_or("").to_owned(),
                         description: t["description"].as_str().unwrap_or("").to_owned(),
-                        parameters: t.get("parameters").cloned().unwrap_or(serde_json::Value::Null),
+                        parameters: t
+                            .get("parameters")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null),
                     },
                 })
                 .collect(),
